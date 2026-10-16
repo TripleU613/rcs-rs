@@ -35,11 +35,22 @@ version is below that local threshold. Our independent carrier adapter can
 perform genuine selected-SIM authentication without claiming that the app's
 local Google SDK gate passed. See [the direct-route evidence](gapps-bootstrap.md#9-direct-ts43-to-acs-path).
 
+A read-only native check now confirms that gate returns status 2 (update
+required). Messages selects external Carrier Services, has RCS switched on,
+and displays “Connecting…”. Its provisioning worker is idle in `RetryState`;
+the saved next attempt is **2026-10-17 07:33:36 UTC**. This is a client schedule,
+not a recovered server quota-reset time. The cached configuration has version
+0, validity 0 and no ACS token or MLS configuration. Native route flags and
+SIM/device metadata match our independent probe. See
+[the native baseline](gapps-bootstrap.md#14-native-activation-state-and-local-sdk-gates).
+
 ## Current gates
 
 | Stage | Evidence | Remaining requirement |
 | --- | --- | --- |
 | Configuration discovery | Corrected Rust request receives ACS, direct TS43 support and a carrier endpoint | Include actual installed GMS context; preserve route-specific policy |
+| Native Messages baseline | RCS enabled, retry scheduled, external Carrier Services selected; direct GMS check returns update-required | The installed microG lacks the Constellation and direct entitlement service implementations; native activation is not a positive control |
+| Native Constellation admission | Actual Messages-context broker request for service155 returns API_DISABLED (23), no service binder | Implement the missing platform API or continue the independent Rust path; no verification transaction was sent by this check |
 | Direct carrier-to-ACS route | Fresh carrier authentication/token, genuine platform proof and owned participant signature reach ACS | Resolve version-0 invalid config and obtain accepted subscriber credentials |
 | Direct request parity | Native binding map/proof bytes/query assembly match; extra policy header removed in attempt06 | Corrected request still gets unspecified invalid config; no positive attestation verdict |
 | Network-path comparison | Direct ACS over selected-SIM cellular also returns invalid config | A different egress did not resolve this tested request |
@@ -60,13 +71,15 @@ Messages' client backoff does not establish when the server will admit another
 attempt. A single further attempt at 08:08 UTC, after more than 65 minutes
 since the previous one, returned the same throttle. It issued no challenge or
 number credential, so carrier authentication, corrected Proceed and the prepared
-UPI ACS handoff were not run. The one-shot job is terminal; no more verification
-attempts are scheduled. Temporary debugging was removed and USB retained. Do not reset IID/SIM identities or repeatedly submit verification to
-turn this unknown into apparent progress.
+UPI ACS handoff were not run. The one-shot research job is terminal; no further
+research verification attempts are scheduled. Messages retains its own delayed
+provisioning worker. Temporary debugging was removed and USB retained. Do not
+reset IID/SIM identities or repeatedly submit verification to turn this unknown
+into apparent progress.
 
 A user-resumed same-identity attempt at **14:30 UTC**, after more than six hours,
 returned the same verification throttle. No carrier authentication or Proceed
-ran, and no more Sync attempts are scheduled. The old challenge is not a normal
+ran, and no more research Sync attempts are scheduled. The old challenge is not a normal
 resume path: GMS stops continuation after a successful RPC returns NONE/FAILED;
 its exception path alone preserves the previous pending record. Its server TTL
 and post-failure reuse policy remain unknown.

@@ -166,7 +166,7 @@ because its return value was incompatible with the expected type. That run
 does not establish anything about server acceptance. The app was restarted and
 the temporary debug preferences and persisted ACS override were removed.
 
-## 4. Current phone blocker: Constellation token acquisition
+## 4. Constellation token acquisition
 
 The verified 2026 Messages splits were installed while preserving app data and
 retaining backups. **Observed live at 01:08 EDT:**
@@ -726,6 +726,71 @@ callers that omit it retain zero and the original request bytes.
 Private evidence: `runtime/gsf-messages-audit-20261016/`,
 `runtime/route-audit-native-gsf/` and `runtime/route-audit-gsf-zero-control/`.
 
+## 14. Native activation state and local SDK gates
+
+Read-only checks in the actual Messages process and its settings UI on
+2026-10-16 establish:
+
+- Messages is the default SMS app, RCS is enabled, and the UI says “Connecting…”.
+  `ekqw.h(context)` is true and `ekqw.a(context)` is 2: the app selects external
+  Carrier Services. Service-process existence alone did not establish this.
+- Provisioning runs in the main process's transient
+  `RcsProvisioningListenableWorker`, through `dmls -> ejuq.a -> ejuw`.
+  Missing `ejuw` instances in idle main or `:rcs` processes are expected.
+- The actual SIM's state cache reports `RetryState`, retry count 11, last
+  attempt `2026-10-16T14:29:35Z`, and next attempt
+  `2026-10-17T07:33:36Z` (03:33 EDT). A consistent WorkManager snapshot separately
+  confirms the completed worker and queued delayed replacement. No retry was
+  forced and no verification RPC was sent during these checks.
+- The cached configuration is present but version 0, validity 0, state 0 and
+  unspecified invalid reason, with no ACS token or MLS configuration.
+  `has_provisioned_once=true` is not success: `ejuw.v()` sets it whenever any
+  configuration exists, including an invalid version-0 cache.
+
+The native `ddmr` flags match corrected Rust discovery: direct TS43 true, UPI
+wire 3, skip HE true, DG-with-GET true, IID inclusion false, profile UP_T/5.1B,
+PII rules wire 4 and policy `upi-carrier-tos-ts43`. Actual Messages-context IMSI,
+IMEI and GID1 getters match the owned inputs used in the earlier independent
+ACS tests. A separately constructed native `ejuz.a()` builder, using the live
+configuration and subscription providers, also returns matching profile,
+version, vendor, form factor and identifier fields. Its constructor and metadata
+getter do not start activation. This closes the earlier supplied-input-only
+comparison; it does not establish complete native HTTP or successful attestation
+parity.
+
+The native availability check for direct TS43's minimum GMS version 254500000
+returns 2 (update required). A cached GMSCore IID exists, but no cached ACS token
+does. With these inputs, `ejvj.h()` would choose UPI `gizz.F` if ReadyState runs.
+UPI GC is enabled, so its zero attempt counter does not prove that verification
+was never entered: this branch deliberately skips that counter. The separate
+UPI availability threshold is 204390000; the actual native check for that
+threshold returns 0 (success).
+
+The installed microG artifact has two concrete SDK coverage gaps. Its manifest
+routes Constellation service155's action to `org.microg.gms.DummyService`, which
+unconditionally returns `onPostInitComplete(23, null, null)` (`API_DISABLED`).
+It has no direct service-entitlement service359 implementation or advertised
+`service_entitlement_1p_api` feature. Current Messages uses transaction7 of that
+interface for direct carrier authentication. These are implementation gaps,
+not demonstrated settings errors. In the UPI failure handler, API_DISABLED
+takes `k(false)`; with GC enabled that enters Retry without legacy fallback.
+This source path does not prove the exact error of the historical attempt.
+Unrelated main-process API errors were not attributed to RCS.
+
+A bounded live bind from the actual Messages process independently reproduced
+service155 admission failure: resolved component
+`com.google.android.gms/org.microg.gms.DummyService`, callback status 23, null
+service binder. The probe checked that exact component before binding, sent
+only the broker's GetServiceRequest for service155, and unbound afterward. It
+did not reconnect a shared client, send a Constellation capability/IID/number
+transaction, or initiate a backend verification request. This confirms the
+current local SDK failure, while leaving the earlier attempt's precise history
+unproven. Private result: `constellation-bind-summary.json` in the native
+evidence directory.
+
+Private evidence: `runtime/native-engine-20261016/` and
+`runtime/baseline-local-20261016/`. Tokens and subscriber identifiers stay private.
+
 ## Next executable work
 
 1. Preserve the verified Rust discovery, initial ACS and consent paths, and
@@ -741,9 +806,12 @@ Private evidence: `runtime/gsf-messages-audit-20261016/`,
    above; none established acceptance. A positive control for this exact line
    would help distinguish environment/subscription state from remaining protocol
    differences. Current captures do not identify the rejecting server check.
+   The native baseline above now separates missing local microG SDK services
+   from the independent direct request's unresolved server admission failure.
    The cellular direct-route comparison did not resolve the invalid config;
    legacy cellular timeouts remain inconclusive. Keep UPI's verification throttle
-   separate; there is no automatic retry loop or scheduled verification request.
+   separate; the research probes have no automatic retry loop or scheduled
+   verification request. Messages retains its own queued provisioning worker.
 4. Obtain authorized provisioning, then registration and the first two-way
    Google Messages RCS exchange. Those goals are still open.
 
