@@ -8,6 +8,7 @@ use tonic::metadata::{Ascii, MetadataValue};
 use tonic::transport::{Channel, ClientTlsConfig, Endpoint};
 
 pub mod acs;
+pub mod consent;
 pub mod wire;
 
 pub struct Discovery {
@@ -150,15 +151,7 @@ fn make_request(
         }],
     };
     let mut request = tonic::Request::new(message);
-    request
-        .metadata_mut()
-        .insert("x-goog-api-key", metadata.api_key.clone());
-    request
-        .metadata_mut()
-        .insert("x-android-package", metadata.package.clone());
-    request
-        .metadata_mut()
-        .insert("x-android-cert", metadata.certificate_sha1.clone());
+    metadata.apply_to(&mut request);
     request.set_timeout(std::time::Duration::from_secs(20));
     request
 }
@@ -170,6 +163,18 @@ pub struct ClientMetadata {
 }
 
 impl ClientMetadata {
+    fn apply_to<T>(&self, request: &mut tonic::Request<T>) {
+        request
+            .metadata_mut()
+            .insert("x-goog-api-key", self.api_key.clone());
+        request
+            .metadata_mut()
+            .insert("x-android-package", self.package.clone());
+        request
+            .metadata_mut()
+            .insert("x-android-cert", self.certificate_sha1.clone());
+    }
+
     pub fn new(key: &str, package: &str, cert: &str) -> Result<Self, Error> {
         if key.is_empty() || key.len() > 4096 || !key.bytes().all(|b| b.is_ascii_graphic()) {
             return Err(Error::InvalidInput("API key"));
@@ -224,9 +229,9 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidInput(field) => write!(f, "invalid {field}"),
-            Self::InvalidResponse(reason) => write!(f, "invalid configuration response: {reason}"),
-            Self::Rpc(status) => write!(f, "configuration RPC failed: {:?}", status.code()),
-            Self::Transport(_) => f.write_str("configuration TLS/HTTP2 transport failed"),
+            Self::InvalidResponse(reason) => write!(f, "invalid bootstrap response: {reason}"),
+            Self::Rpc(status) => write!(f, "bootstrap RPC failed: {:?}", status.code()),
+            Self::Transport(_) => f.write_str("bootstrap TLS/HTTP2 transport failed"),
         }
     }
 }
@@ -285,7 +290,7 @@ async fn query_channel(
     let request = make_request(metadata, probe, &uuid::Uuid::new_v4().to_string());
     let response = grpc.unary(request,
         http::uri::PathAndQuery::from_static("/google.internal.communications.mobileconfiguration.v1.MobileConfigurationService/GetConfiguration"),
-        codec::PreservingCodec).await.map_err(|status| Error::Rpc(Box::new(status)))?;
+        codec::PreservingCodec::<wire::GetConfigurationRequest>::default()).await.map_err(|status| Error::Rpc(Box::new(status)))?;
     Discovery::decode(response.into_inner())
 }
 

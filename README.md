@@ -7,9 +7,11 @@ library. The app retains its conversation UI and SMS transport. The RCS engine
 handles service provisioning, registration, capabilities and RCS messaging.
 
 **Status: Rust configuration discovery works against the live service.**
-The Rust ACS client also obtains a real DroidGuard challenge and retains its
-session cookie. Subscriber
-provisioning, registration and Google Messages interoperability remain unverified.
+The Rust ACS client obtains a real DroidGuard challenge and retains its session
+cookie. Rust consent lookup also works with genuine caller-supplied platform
+identity/proof inputs. An independent initial Sync selected TS43 verification;
+subscriber provisioning, registration and Google Messages interoperability remain
+unverified.
 
 Success means this library sends a text to current Google Messages and receives
 a reply over **verified RCS**, independently of Google Messages on the sending
@@ -52,6 +54,11 @@ The separate initial ACS probe takes an HTTPS endpoint and client metadata:
 ```sh
 cargo run --example challenge -- HTTPS_URL VENDOR MODEL OS_VERSION CLIENT_VENDOR CLIENT_VERSION RCS_PROFILE RCS_VERSION
 ```
+
+`cargo run --example get_consent -- /private/input.json` performs consumer
+consent lookup. The example documents its private-file inputs. It requires a
+genuine full-flow IID, checkin identity, owned public key and DroidGuard proof
+or a valid backend-issued cached token; the crate does not fabricate these.
 
 `cargo test --all-targets` runs the synthetic protocol and localhost transport
 checks. Formatting and strict Clippy also pass. No live credentials are needed

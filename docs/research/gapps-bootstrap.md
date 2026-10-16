@@ -1,7 +1,8 @@
 # GApps RCS bootstrap: recovered behavior
 
-Investigation date: 2026-10-16. Status: bootstrap discovery and an ACS challenge
-have been reproduced; subscriber provisioning, registration and message exchange
+Investigation date: 2026-10-16. Status: bootstrap discovery, ACS challenge,
+consent lookup and an initial verification challenge have been reproduced;
+subscriber provisioning, registration and message exchange
 remain incomplete. Findings distinguish static code from execution.
 
 ## Artifact identity
@@ -188,7 +189,74 @@ additional registration hypothesis is not established by this artifact. The
 separate ECDSA client key is advertised by the first Sync/GetConsent header,
 then used for client authentication after backend acknowledgement.
 
-## 5. GMS compliance and ACS attestation are separate
+## 5. Full-flow consent lookup works independently
+
+**Observed live:** `PhoneDeviceVerification/GetConsent` returned HTTP/2 200,
+gRPC status 0 and a 137-byte response. It contains an RCS consumer row with
+client enum 2 and consent enum 1 (`CONSENTED`), which the reference consumer-
+specific check accepts. This establishes consent lookup, not number verification. The repository Rust
+implementation independently repeated the successful consent lookup using the
+actual cached token subsequently issued by Sync. Its decoder reports the RCS
+state as consented without exposing identity/proof inputs.
+
+The successful request used a fresh owned RSA-derived IID registered for project
+`496232013492`, an owned EC public key, a genuine microG-backed DroidGuard result
+for flow `constellation_verify` bound to `rpc=getConsent`, and actual checkin
+Android ID in header `ClientInfo.DeviceId` fields 2 and 4. User serial field 3
+was legitimately zero. The root DeviceId contained only the IID token, matching
+`brdw.d`. The request carried no IMSI, IMEI or phone number.
+
+Checkin Android ID is not `Settings.Secure.ANDROID_ID`: `brao.a -> bqpj.d ->
+biry/birt -> CheckinApiService -> bisb/bise` resolves authenticated Google
+checkin state. Filling that actual ID in the header resolved the prior field-
+validation error. This does not resolve the separate read-only GPNV rejection.
+
+No account OAuth or client signature was supplied. `GetConsent` intentionally
+omits client authentication; first Sync advertises the owned EC public key and
+requires acknowledgement before signed follow-up requests. The inspected
+response contains no cached DroidGuard token, so Sync needs a fresh proof bound
+to `rpc=sync`. Never reuse a raw proof under a different RPC binding.
+
+Wire corrections checked against generated descriptors: legacy consent state is
+inner field 2 and detail is field 3; RCS consumer rows use client field 1/state
+field 2. The earlier private research template incorrectly labelled legacy state
+field 1; that was corrected before implementing its Rust decoder.
+
+## 6. Initial Sync selects a real TS43 challenge
+
+**Observed live:** an independent first `PhoneDeviceVerification/Sync` returned
+gRPC status 0 and a 4,842-byte gRPC frame. The verification is `PENDING` (wire
+state 2), with method enum 11 (`TS43`) and operation `AcquireTemporaryToken`.
+The response issued a cached DroidGuard token with an expiry. No verified-number
+JWT or completed RCS provisioning document has been obtained.
+
+The request used actual active-SIM association data, a fresh proof for
+`constellation_verify` bound to `rpc=sync`, the existing owned EC public key,
+RCS consent parameters and the reference caller's certificate/nonce format.
+The nonce hashes UTF-8 `caller_session_id + "." + IMSI` using SHA-256. The
+caller certificate is padded standard Base64 of the oldest signing certificate's
+SHA-1 digest, which differs from the HTTP header's hex format. Optional
+telephony capability fields and platform-number-source rows were omitted in this
+bounded probe; it does not establish complete reference-client parity.
+
+SIM identifiers were read privately through the default SMS application's
+existing access. The installed microG process could not read IMSI through its
+current permissions; no additional phone permission was granted. The request
+contained the real selected SIM; it did not claim a fabricated number or proof.
+
+The selected handler is `brxy -> brxd -> wej/weu/wew`: authenticate to the
+provided carrier URL, use the actual SIM's `getIccAuthentication(2,129,...)`
+result for EAP-AKA, then acquire the temporary token. `Proceed` must carry the
+full carrier JSON response, the original verification and the exact opaque
+challenge context, preserving unknown fields. Carrier entitlement and SIM
+authentication have not yet been completed.
+
+No EC-key acknowledgement was present in the response header. The reference
+client leaves the first follow-up unsigned until it receives that acknowledgement.
+Actual unknown response-header fields 2/3 remain private and are not assigned
+invented meanings or echoed as invented request fields.
+
+## 7. GMS compliance and ACS attestation are separate
 
 Static original-GMS evidence resolves service 257:
 
@@ -227,8 +295,8 @@ registration. The normal app flow remains blocked earlier at number verification
 
 1. Preserve the verified Rust discovery path and implement the ACS challenge
    exchange using synthetic fixtures and externally supplied metadata.
-2. Validate the genuine push-token diagnostic, then trace the separate
-   number-verification and attestation paths under microG.
+2. Complete the selected TS43 SIM-authentication challenge and `Proceed`
+   exchange; retain the distinction between pending and verified states.
 3. Reproduce the ACS challenge and its content binding with the selected
    verification path; distinguish unsupported platform APIs from server rejection.
 4. Obtain authorized provisioning, then registration and the first two-way

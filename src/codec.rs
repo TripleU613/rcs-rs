@@ -4,11 +4,12 @@ use tonic::{
     codec::{Codec, DecodeBuf, Decoder},
 };
 
-pub(crate) struct PreservingCodec;
+#[derive(Default)]
+pub(crate) struct PreservingCodec<T>(std::marker::PhantomData<fn() -> T>);
 pub(crate) struct RawDecoder;
 
-impl Codec for PreservingCodec {
-    type Encode = crate::wire::GetConfigurationRequest;
+impl<T: prost::Message + Default + 'static> Codec for PreservingCodec<T> {
+    type Encode = T;
     type Decode = Bytes;
     type Encoder = tonic_prost::ProstEncoder<Self::Encode>;
     type Decoder = RawDecoder;
