@@ -47,6 +47,10 @@ these before writing another SIP/MSRP stack. The [pinned audit](docs/research/up
 found working parser/linkage paths, secret logging and incomplete platform support.
 Their upstream claims are not verification of Tello or Google Messages compatibility.
 
+[Evaluation patches](patches/upstream/README.md) now suppress credential logging,
+fix trust-root loading and reject truncated provisioning. They are tested against
+the pinned sources and remain separate from the shipping crate.
+
 ## Development data
 
 Use synthetic fixtures in this repository. Keep SIM identifiers, phone numbers,

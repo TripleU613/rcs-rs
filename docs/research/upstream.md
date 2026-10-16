@@ -123,3 +123,34 @@ these branches also check the target OS.
 This was a bounded baseline and credential-handling audit, not a complete
 security, protocol-conformance, or dependency audit. Upstream source was not
 imported into rcs-rs, and no interoperability claim follows from these checks.
+
+## Local evaluation fixes
+
+The [portable patch set](../../patches/upstream/README.md) applies to the pins
+above. It suppresses the shared protocol logger in debug/release/mobile builds,
+fixes DER/PEM trust loading with fallible Context/C-constructor propagation, and
+rejects truncated WAP documents at the shared reader and cache callers. Synthetic
+sentinel logging, root-loading and XML regressions were observed failing before
+fixes and passing afterward. No private configuration was used in these tests.
+
+The client pins quick-xml to 0.37.5 to get parser-level unfinished-tag detection;
+root attributes are checked and nested parse errors reach callers. Review caught
+whitespace/trimmed-reader and empty-root gaps in the first delimiter check; three
+regressions reproduced them before the parser upgrade and pass afterward.
+
+Patched results: core 6 functional tests, client 14 tests, external consumer
+4 tests pass. The consumer now constructs both PEM and DER contexts successfully
+and still confirms that Linux SIM/network helpers are stubs. Full core testing
+also exposed one existing failing doctest in
+`internet::syntax::index_skipping_ows_and_obs_fold` (trailing-newline fixture
+mismatch); it reproduces on the unmodified pin. The other 10 core doctests pass.
+Upstream warnings remain; no clean lint or complete security audit is claimed.
+
+Patch application is tested from clean pinned checkouts, including the binary
+DER fixture. Upstream source is not bulk-vendored or wired into the root crate.
+Android callback linkage, platform DNS/IMS access, SIM authorization, live TLS,
+valid carrier configuration, SIP registration and RCS delivery remain unverified.
+The ordinary-app permission investigation is also still open: after a physical
+reconnect/new cable, USB enumeration worked but ADB system-file reads continued
+to fail. No installed telephony bytecode or active ICC-permission flag was
+established by those failed transfers.

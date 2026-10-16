@@ -1,0 +1,122 @@
+diff --git a/src/ffi/log.rs b/src/ffi/log.rs
+index 9201856..6591309 100644
+--- a/src/ffi/log.rs
++++ b/src/ffi/log.rs
+@@ -12,45 +12,8 @@
+ // See the License for the specific language governing permissions and
+ // limitations under the License.
+
+-extern crate libc;
+-
+-use std::ffi::CString;
+-
+-use libc::c_char;
+-
+-#[cfg(any(
+-    all(feature = "android", target_os = "android"),
+-    all(feature = "ohos", all(target_os = "linux", target_env = "ohos"))
+-))]
+-extern "C" {
+-    fn platform_log_impl(tag: *const c_char, message: *const c_char);
+-}
+-
+-#[cfg(debug_assertions)]
+-pub fn platform_log<M>(tag: &str, message: M)
+-where
+-    M: AsRef<str>,
+-{
+-    #[cfg(any(
+-        all(feature = "android", target_os = "android"),
+-        all(feature = "ohos", all(target_os = "linux", target_env = "ohos"))
+-    ))]
+-    if let (Ok(tag), Ok(message)) = (CString::new(tag), CString::new(message.as_ref())) {
+-        let c_tag = (&tag).as_ptr();
+-        let c_message = (&message).as_ptr();
+-        unsafe {
+-            platform_log_impl(c_tag, c_message);
+-        }
+-    }
+-    #[cfg(not(any(
+-        all(feature = "android", target_os = "android"),
+-        all(feature = "ohos", all(target_os = "linux", target_env = "ohos"))
+-    )))]
+-    println!("{}:   {}", tag, message.as_ref());
+-}
+-
+-#[cfg(not(debug_assertions))]
+-pub fn platform_log<M>(tag: &str, message: M)
++// Protocol callers include credentials and message bodies in these arguments.
++pub fn platform_log<M>(_tag: &str, _message: M)
+ where
+     M: AsRef<str>,
+ {
+diff --git a/tests/protocol_logging.rs b/tests/protocol_logging.rs
+new file mode 100644
+index 0000000..5820bfe
+--- /dev/null
++++ b/tests/protocol_logging.rs
+@@ -0,0 +1,64 @@
++// Copyright 2026 rcs-rs contributors
++// SPDX-License-Identifier: Apache-2.0
++
++use rust_rcs_core::{
++    ffi::log::platform_log,
++    security::authentication::digest::{DigestAnswerParams, DigestCredentials},
++};
++use std::process::Command;
++
++#[test]
++fn protocol_log_child() {
++    if std::env::var_os("RCS_PROTOCOL_LOG_CHILD").is_none() {
++        return;
++    }
++    platform_log("test", "synthetic-private-proof");
++    let answer = DigestAnswerParams {
++        realm: b"example.test".to_vec(),
++        algorithm: Some(b"MD5".to_vec()),
++        username: b"synthetic-private-user".to_vec(),
++        uri: b"/".to_vec(),
++        challenge: None,
++        credentials: Some(DigestCredentials {
++            password: b"synthetic-private-password".to_vec(),
++            client_data: Some(b"GET".to_vec()),
++            client_nonce: None,
++            entity_digest: None,
++            extra_params: Vec::new(),
++        }),
++    };
++    assert!(answer
++        .make_authorization_header(Some(b"MD5"), true, true)
++        .is_ok());
++    let mut headers = [httparse::EMPTY_HEADER; 4];
++    let mut parsed = httparse::Response::new(&mut headers);
++    parsed
++        .parse(b"HTTP/1.1 200 OK\r\nSet-Cookie: synthetic-private-cookie\r\n\r\n")
++        .unwrap();
++    assert!(rust_rcs_core::http::response::Response::from(&parsed).is_some());
++}
++
++#[test]
++fn protocol_operations_do_not_print_credentials() {
++    let output = Command::new(std::env::current_exe().unwrap())
++        .args(["--exact", "protocol_log_child", "--nocapture"])
++        .env("RCS_PROTOCOL_LOG_CHILD", "1")
++        .output()
++        .unwrap();
++    assert!(output.status.success());
++    for stream in [&output.stdout, &output.stderr] {
++        let text = String::from_utf8_lossy(stream);
++        for private in [
++            "synthetic-private-proof",
++            "synthetic-private-user",
++            "synthetic-private-password",
++            "synthetic-private-cookie",
++            "73796e7468657469632d707269766174652d70617373776f7264",
++        ] {
++            assert!(
++                !text.to_ascii_lowercase().contains(private),
++                "protocol credential reached process output"
++            );
++        }
++    }
++}

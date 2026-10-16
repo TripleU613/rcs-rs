@@ -1,0 +1,836 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index eabbddf..c90e2cf 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -25,7 +25,7 @@ chrono = { version = "0.4" }
+ cookie = { version = "0.18" }
+ futures = { version = "0.3" }
+ libc = { version = "0.2" }
+-quick-xml = { version = "0.31" }
++quick-xml = { version = "=0.37.5" }
+ rustls = { version = "0.22" }
+ rustls-pemfile = { version = "2.0" }
+ tokio = { version = "1.35", features = ["rt-multi-thread"] }
+diff --git a/src/context.rs b/src/context.rs
+index 9cbc7fc..5cb2293 100644
+--- a/src/context.rs
++++ b/src/context.rs
+@@ -16,14 +16,13 @@ extern crate rustls;
+ extern crate walkdir;
+
+ use std::fs::File;
+-use std::io::{BufReader, Read};
+-use std::path::PathBuf;
++use std::io::{self, BufReader};
++use std::path::Path;
+ use std::sync::Arc;
+-use std::{iter, panic};
+
+ use rustls::pki_types::CertificateDer;
+ use rustls::{ClientConfig, RootCertStore};
+-use rustls_pemfile::{read_one, Item};
++use rustls_pemfile::certs;
+
+ use rust_rcs_core::dns::DnsClient;
+
+@@ -42,6 +41,46 @@ use walkdir::WalkDir;
+
+ const LOG_TAG: &str = "context";
+
++fn read_tls_roots(path: &Path) -> io::Result<RootCertStore> {
++    let mut roots = RootCertStore::empty();
++    for entry in WalkDir::new(path) {
++        let entry = entry.map_err(io::Error::other)?;
++        if !entry.file_type().is_file() {
++            continue;
++        }
++        let path = entry.path();
++        let Some(extension) = path.extension() else {
++            continue;
++        };
++        if extension.eq_ignore_ascii_case("pem") {
++            let previous = roots.len();
++            for cert in certs(&mut BufReader::new(File::open(path)?)) {
++                roots.add(cert?).map_err(|_| {
++                    io::Error::new(io::ErrorKind::InvalidData, "invalid trust certificate")
++                })?;
++            }
++            if roots.len() == previous {
++                return Err(io::Error::new(
++                    io::ErrorKind::InvalidData,
++                    "PEM file contains no certificates",
++                ));
++            }
++        } else if extension.eq_ignore_ascii_case("der") {
++            let cert = CertificateDer::from(std::fs::read(path)?);
++            roots.add(cert).map_err(|_| {
++                io::Error::new(io::ErrorKind::InvalidData, "invalid trust certificate")
++            })?;
++        }
++    }
++    if roots.is_empty() {
++        return Err(io::Error::new(
++            io::ErrorKind::InvalidData,
++            "no trust certificates",
++        ));
++    }
++    Ok(roots)
++}
++
+ pub struct Context {
+     pub fs_root_dir: String,
+
+@@ -56,8 +95,8 @@ pub struct Context {
+ }
+
+ impl Context {
+-    pub fn new(fs_root_dir: &str, rt: Arc<Runtime>) -> Context {
+-        let tls_client_config = make_tls_client_config(fs_root_dir);
++    pub fn new(fs_root_dir: &str, rt: Arc<Runtime>) -> io::Result<Context> {
++        let tls_client_config = make_tls_client_config(fs_root_dir)?;
+         let tls_client_config = Arc::new(tls_client_config);
+
+         let dns_client = DnsClient::new(Arc::clone(&rt));
+@@ -69,7 +108,7 @@ impl Context {
+
+         let (otp_broadcaster, _) = broadcast::channel(1);
+
+-        Context {
++        Ok(Context {
+             fs_root_dir: fs_root_dir.to_string(),
+
+             dns_client,
+@@ -80,7 +119,7 @@ impl Context {
+             security_context: Arc::new(SecurityContext::new()),
+
+             otp_broadcaster,
+-        }
++        })
+     }
+
+     pub fn get_fs_root_dir(&self) -> &str {
+@@ -129,84 +168,72 @@ impl Context {
+     }
+ }
+
+-fn make_tls_client_config(root_dir: &str) -> ClientConfig {
+-    let mut root_certs = RootCertStore::empty();
++fn make_tls_client_config(root_dir: &str) -> io::Result<ClientConfig> {
++    let roots = read_tls_roots(&Path::new(root_dir).join("certs"))?;
++    Ok(ClientConfig::builder()
++        .with_root_certificates(roots)
++        .with_no_client_auth())
++}
+
+-    let mut path = PathBuf::from(root_dir);
+-    path.push("certs");
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use std::path::PathBuf;
++    use std::{
++        fs,
++        time::{SystemTime, UNIX_EPOCH},
++    };
+
+-    platform_log(
+-        LOG_TAG,
+-        format!("searching for certificates under path {:?}", path),
+-    );
+-
+-    for entry in WalkDir::new(path)
+-        .min_depth(1)
+-        .into_iter()
+-        .filter_entry(|e| -> bool {
+-            platform_log(LOG_TAG, format!("found entry {:?}", e));
+-
+-            if let Some(file_name) = e.file_name().to_str() {
+-                file_name.ends_with(".der") || file_name.ends_with(".pem")
+-            } else {
+-                false
+-            }
+-        })
+-    {
+-        match entry {
+-            Ok(e) => {
+-                let path = e.path();
+-                platform_log(LOG_TAG, format!("init certificate with file {:?}", path));
+-                let mut f = File::open(path).unwrap();
+-                match path.extension() {
+-                    Some(ext) => {
+-                        if ext.eq_ignore_ascii_case("pem") {
+-                            let mut buf_reader = BufReader::new(f);
+-                            for item in iter::from_fn(|| read_one(&mut buf_reader).transpose()) {
+-                                match item {
+-                                    Ok(cert_item) => match cert_item {
+-                                        Item::X509Certificate(cert) => {
+-                                            platform_log(LOG_TAG, "adding X509Certificate");
+-                                            root_certs.add(cert).unwrap();
+-                                        }
+-                                        Item::Pkcs1Key(key) => platform_log(
+-                                            LOG_TAG,
+-                                            format!("rsa pkcs1 key {:?} not handled", key),
+-                                        ),
+-                                        Item::Pkcs8Key(key) => platform_log(
+-                                            LOG_TAG,
+-                                            format!("pkcs8 key {:?} not handled", key),
+-                                        ),
+-                                        Item::Sec1Key(key) => platform_log(
+-                                            LOG_TAG,
+-                                            format!("sec1 ec key {:?} not handled", key),
+-                                        ),
+-                                        _ => platform_log(LOG_TAG, "no certificate found"),
+-                                    },
+-
+-                                    Err(e) => platform_log(LOG_TAG, format!("pem error {:?}", e)),
+-                                }
+-                            }
+-                        } else {
+-                            let mut v = vec![0; 4 * 1024];
+-                            f.read_to_end(&mut v).unwrap();
+-
+-                            let cert = CertificateDer::from(v);
+-                            platform_log(LOG_TAG, format!("adding certificate {:?}", cert));
+-                            root_certs.add(cert).unwrap();
+-                        }
+-                    }
+-                    None => panic!(""),
+-                }
+-            }
+-
+-            Err(e) => {}
+-        }
++    fn trust_dir(label: &str) -> PathBuf {
++        let path = std::env::temp_dir().join(format!(
++            "rcs-rs-eval-trust-{}-{}-{}",
++            std::process::id(),
++            label,
++            SystemTime::now()
++                .duration_since(UNIX_EPOCH)
++                .unwrap()
++                .as_nanos()
++        ));
++        fs::create_dir(&path).unwrap();
++        path
+     }
+
+-    let client_config = ClientConfig::builder()
+-        .with_root_certificates(root_certs)
+-        .with_no_client_auth();
++    #[test]
++    fn loads_pem_roots_in_nested_directories() {
++        let path = trust_dir("pem");
++        fs::create_dir(path.join("nested")).unwrap();
++        fs::write(
++            path.join("nested/ROOT.PEM"),
++            include_bytes!("../tests/fixtures/root.pem"),
++        )
++        .unwrap();
++        assert_eq!(read_tls_roots(&path).unwrap().len(), 1);
++        fs::remove_dir_all(path).unwrap();
++    }
+
+-    client_config
++    #[test]
++    fn loads_der_without_prefix_padding() {
++        let path = trust_dir("der");
++        fs::write(
++            path.join("root.der"),
++            include_bytes!("../tests/fixtures/root.der"),
++        )
++        .unwrap();
++        assert_eq!(read_tls_roots(&path).unwrap().len(), 1);
++        fs::remove_dir_all(path).unwrap();
++    }
++
++    #[test]
++    fn rejects_unusable_trust_roots() {
++        let path = trust_dir("bad");
++        assert!(read_tls_roots(&path).is_err());
++        assert!(read_tls_roots(&path.join("missing")).is_err());
++        for name in ["bad.der", "bad.pem"] {
++            let cert = path.join(name);
++            fs::write(&cert, b"synthetic-invalid-certificate").unwrap();
++            assert!(read_tls_roots(&path).is_err());
++            fs::remove_file(cert).unwrap();
++        }
++        fs::remove_dir_all(path).unwrap();
++    }
+ }
+diff --git a/src/lib.rs b/src/lib.rs
+index 69e79a4..71e2ebb 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -295,7 +295,10 @@ pub unsafe extern "C" fn new_rcs_client(
+     if let Some(rcs_runtime) = rcs_runtime.as_ref() {
+         platform_log(LOG_TAG, "creating context");
+         let rt = Arc::clone(&rcs_runtime.rt);
+-        let context = Arc::new(Context::new(&fs_root_dir, rt));
++        let Ok(context) = Context::new(&fs_root_dir, rt) else {
++            return None;
++        };
++        let context = Arc::new(context);
+         return Some(Box::new(RcsClient::new(
+             subscription_id,
+             mcc,
+diff --git a/src/provisioning/characteristic.rs b/src/provisioning/characteristic.rs
+index 92d7b51..b630748 100644
+--- a/src/provisioning/characteristic.rs
++++ b/src/provisioning/characteristic.rs
+@@ -52,16 +52,12 @@ where
+     let mut value: Option<String> = None;
+
+     for attribute in e.attributes() {
+-        if let Ok(attribute) = attribute {
+-            if attribute.key.as_ref() == b"name" {
+-                if let Ok(attribute_value) = attribute.unescape_value() {
+-                    name.replace(attribute_value.into_owned());
+-                }
+-            } else if attribute.key.as_ref() == b"value" {
+-                if let Ok(attribute_value) = attribute.unescape_value() {
+-                    value.replace(attribute_value.into_owned());
+-                }
+-            }
++        let attribute = attribute.ok()?;
++        let value_string = attribute.unescape_value().ok()?.into_owned();
++        if attribute.key.as_ref() == b"name" {
++            name.replace(value_string);
++        } else if attribute.key.as_ref() == b"value" {
++            value.replace(value_string);
+         }
+     }
+
+@@ -85,7 +81,7 @@ where
+                 }
+
+                 Ok(Event::Eof) | Err(_) => {
+-                    break;
++                    return None;
+                 }
+
+                 _ => {}
+@@ -253,12 +249,10 @@ where
+     let mut characteristic_type: Option<String> = None;
+
+     for attribute in e.attributes() {
+-        if let Ok(attribute) = attribute {
+-            if attribute.key.as_ref() == b"type" {
+-                if let Ok(value) = attribute.unescape_value() {
+-                    characteristic_type.replace(value.into_owned());
+-                }
+-            }
++        let attribute = attribute.ok()?;
++        let value = attribute.unescape_value().ok()?;
++        if attribute.key.as_ref() == b"type" {
++            characteristic_type.replace(value.into_owned());
+         }
+     }
+
+@@ -267,34 +261,31 @@ where
+     let mut characteristic_parameters = Vec::new();
+     let mut child_characteristics = Vec::new();
+
+-    let mut handle_element = |xml_reader: &mut Reader<R>, e: &BytesStart, level: i32| -> bool {
+-        if e.name().as_ref().eq_ignore_ascii_case(b"characteristic") {
+-            let mut buf = Vec::new();
+-            if let Some(characteristic) = read_characteristic(xml_reader, &mut buf, e, level) {
+-                child_characteristics.push(characteristic);
++    let mut handle_element =
++        |xml_reader: &mut Reader<R>, e: &BytesStart, level: i32| -> Option<bool> {
++            if e.name().as_ref().eq_ignore_ascii_case(b"characteristic") {
++                let mut buf = Vec::new();
++                child_characteristics.push(read_characteristic(xml_reader, &mut buf, e, level)?);
++                return Some(true);
++            } else if e.name().as_ref().eq_ignore_ascii_case(b"parm") {
++                let mut buf = Vec::new();
++                characteristic_parameters.push(read_parm(xml_reader, &mut buf, e, level)?);
++                return Some(true);
+             }
+-            return true;
+-        } else if e.name().as_ref().eq_ignore_ascii_case(b"parm") {
+-            let mut buf = Vec::new();
+-            if let Some(parameter) = read_parm(xml_reader, &mut buf, e, level) {
+-                characteristic_parameters.push(parameter);
+-            }
+-            return true;
+-        }
+-        false
+-    };
++            Some(false)
++        };
+
+     if level > 0 {
+         loop {
+             match xml_reader.read_event_into(buf) {
+                 Ok(Event::Start(ref e)) => {
+-                    if !handle_element(xml_reader, e, 1) {
++                    if !handle_element(xml_reader, e, 1)? {
+                         level += 1;
+                     }
+                 }
+
+                 Ok(Event::Empty(ref e)) => {
+-                    handle_element(xml_reader, e, 0);
++                    handle_element(xml_reader, e, 0)?;
+                 }
+
+                 Ok(Event::End(_)) => {
+@@ -305,7 +296,7 @@ where
+                 }
+
+                 Ok(Event::Eof) | Err(_) => {
+-                    break;
++                    return None;
+                 }
+
+                 _ => {}
+diff --git a/src/provisioning/local_provisioning_doc.rs b/src/provisioning/local_provisioning_doc.rs
+index 44bdb04..63ac942 100644
+--- a/src/provisioning/local_provisioning_doc.rs
++++ b/src/provisioning/local_provisioning_doc.rs
+@@ -286,7 +286,7 @@ where
+                 if e.name().as_ref().equals_bytes(b"wap-provisioningdoc", true) {
+                     let mut buf = Vec::new();
+                     wap_provisioning_doc
+-                        .replace(read_wap_provisioning_doc(xml_reader, &mut buf, e));
++                        .replace(read_wap_provisioning_doc(xml_reader, &mut buf, e).ok()?);
+                     level -= 1;
+                 }
+             }
+@@ -329,7 +329,7 @@ pub fn read_provisionging_doc<R>(
+     xml_reader: &mut Reader<R>,
+     buf: &mut Vec<u8>,
+     e: &BytesStart,
+-) -> LocalProvisioningDoc
++) -> Option<LocalProvisioningDoc>
+ where
+     R: std::io::BufRead,
+ {
+@@ -343,11 +343,7 @@ where
+                 level += 1;
+                 if e.name().as_ref().equals_bytes(b"provisioning-info", true) {
+                     let mut buf = Vec::new();
+-                    if let Some(provisioning_info) =
+-                        read_provisionging_info(xml_reader, &mut buf, e)
+-                    {
+-                        root.push(provisioning_info);
+-                    }
++                    root.push(read_provisionging_info(xml_reader, &mut buf, e)?);
+                     level -= 1;
+                 }
+             }
+@@ -360,7 +356,7 @@ where
+             }
+
+             Ok(Event::Eof) | Err(_) => {
+-                break;
++                return None;
+             }
+
+             _ => {}
+@@ -369,7 +365,7 @@ where
+
+     buf.clear();
+
+-    LocalProvisioningDoc { root }
++    Some(LocalProvisioningDoc { root })
+ }
+
+ pub fn load_provisionging_doc(path: &str) -> Option<LocalProvisioningDoc> {
+@@ -380,7 +376,7 @@ pub fn load_provisionging_doc(path: &str) -> Option<LocalProvisioningDoc> {
+                 Ok(Event::Start(ref e)) => {
+                     if e.name().as_ref().equals_bytes(b"provisioning-doc", true) {
+                         let mut buf = Vec::new();
+-                        return Some(read_provisionging_doc(&mut xml_reader, &mut buf, e));
++                        return read_provisionging_doc(&mut xml_reader, &mut buf, e);
+                     }
+                 }
+
+diff --git a/src/provisioning/wap_provisioning_doc.rs b/src/provisioning/wap_provisioning_doc.rs
+index 92f28ae..11b2f9c 100644
+--- a/src/provisioning/wap_provisioning_doc.rs
++++ b/src/provisioning/wap_provisioning_doc.rs
+@@ -181,36 +181,41 @@ impl WapProvisioningDoc {
+ pub fn read_wap_provisioning_doc<R>(
+     xml_reader: &mut Reader<R>,
+     buf: &mut Vec<u8>,
+-    _e: &BytesStart,
+-) -> WapProvisioningDoc
++    e: &BytesStart,
++) -> Result<WapProvisioningDoc, &'static str>
+ where
+     R: std::io::BufRead,
+ {
++    for attribute in e.attributes() {
++        attribute
++            .map_err(|_| "Bad XML")?
++            .unescape_value()
++            .map_err(|_| "Bad XML")?;
++    }
+     let mut level = 1;
+
+     let mut root = Vec::new();
+
+-    let mut handle_element = |xml_reader: &mut Reader<R>, e: &BytesStart, level: i32| -> bool {
+-        if e.name().as_ref().equals_bytes(b"characteristic", true) {
+-            let mut buf = Vec::new();
+-            if let Some(characteristic) = read_characteristic(xml_reader, &mut buf, e, level) {
+-                root.push(characteristic);
++    let mut handle_element =
++        |xml_reader: &mut Reader<R>, e: &BytesStart, level: i32| -> Result<bool, &'static str> {
++            if e.name().as_ref().equals_bytes(b"characteristic", true) {
++                let mut buf = Vec::new();
++                root.push(read_characteristic(xml_reader, &mut buf, e, level).ok_or("Bad XML")?);
++                return Ok(true);
+             }
+-            return true;
+-        }
+-        false
+-    };
++            Ok(false)
++        };
+
+     loop {
+         match xml_reader.read_event_into(buf) {
+             Ok(Event::Start(ref e)) => {
+-                if !handle_element(xml_reader, e, 1) {
++                if !handle_element(xml_reader, e, 1)? {
+                     level += 1;
+                 }
+             }
+
+             Ok(Event::Empty(ref e)) => {
+-                handle_element(xml_reader, e, 0);
++                handle_element(xml_reader, e, 0)?;
+             }
+
+             Ok(Event::End(_)) => {
+@@ -221,7 +226,7 @@ where
+             }
+
+             Ok(Event::Eof) | Err(_) => {
+-                break;
++                return Err("Bad XML");
+             }
+
+             _ => {}
+@@ -230,7 +235,7 @@ where
+
+     buf.clear();
+
+-    WapProvisioningDoc { root }
++    Ok(WapProvisioningDoc { root })
+ }
+
+ pub fn write_wap_provisioning_doc<W>(
+@@ -258,24 +263,39 @@ impl FromStr for WapProvisioningDoc {
+     fn from_str(s: &str) -> Result<Self, Self::Err> {
+         let mut xml_reader = Reader::from_str(s);
+         let mut buf = Vec::new();
++        let mut doc = None;
+         loop {
+             match xml_reader.read_event_into(&mut buf) {
+-                Ok(Event::Start(ref e)) => {
+-                    if e.name().as_ref().equals_bytes(b"wap-provisioningdoc", true) {
+-                        let mut buf = Vec::new();
+-                        return Ok(read_wap_provisioning_doc(&mut xml_reader, &mut buf, e));
++                Ok(Event::Start(ref e))
++                    if doc.is_none()
++                        && e.name().as_ref().equals_bytes(b"wap-provisioningdoc", true) =>
++                {
++                    doc = Some(read_wap_provisioning_doc(
++                        &mut xml_reader,
++                        &mut Vec::new(),
++                        e,
++                    )?);
++                }
++                Ok(Event::Empty(ref e))
++                    if doc.is_none()
++                        && e.name().as_ref().equals_bytes(b"wap-provisioningdoc", true) =>
++                {
++                    for attribute in e.attributes() {
++                        attribute
++                            .map_err(|_| "Bad XML")?
++                            .unescape_value()
++                            .map_err(|_| "Bad XML")?;
+                     }
++                    doc = Some(WapProvisioningDoc::new(Vec::new()));
+                 }
+-
+-                Ok(Event::Eof) | Err(_) => {
+-                    break;
+-                }
+-
+-                _ => {}
++                Ok(Event::Text(ref text)) if text.iter().all(u8::is_ascii_whitespace) => {}
++                Ok(Event::Comment(_) | Event::PI(_)) => {}
++                Ok(Event::Decl(_) | Event::DocType(_)) if doc.is_none() => {}
++                Ok(Event::Eof) => return doc.ok_or("Bad XML"),
++                _ => return Err("Bad XML"),
+             }
++            buf.clear();
+         }
+-
+-        Err("Bad XML")
+     }
+ }
+
+diff --git a/tests/fixtures/root.der b/tests/fixtures/root.der
+new file mode 100644
+index 0000000000000000000000000000000000000000..9a383ab70ce0673367c20a6f4feac56e44092ba5
+GIT binary patch
+literal 434
+zcmXqLVq9m?#2C7OnTe5!NyJ8DQHru&x*&JoYpYW^T+$(0CdUl8*f_M>JkHs&Ff$pb
+z8Y&wovN4CUF!M+iB^T=!6)O~1=9OfmmSiR?l%y7yC=})Aml(*2^BS2M8W@@x85o-x
+zTSkfV8iTmTP%g2?L>dUQv4ibqVuU(^nUS5@iGk(s-@kjWO6!^L+90<$y5faa1V88N
+zv|}?a_c6a@SiEh0d$Vpor(%mEziLRcpW0#WiqltWe!iDYX{)|tb86mZvk8ln4H6Ax
+z*_cCR`B=nQM9ea3Cznm{jS7(Yo9<Y)W1T^cz&itZkhC(3gn?KCb_M((1;UJs|5;cK
+zm>C)W8}NYy_(1|J%uI}I$RWq<&S2oeq!9G{IpgJ}8=sy(KJ)nx)fW;QlufcaPa20b
+wg=fkfc<_puNg?cPzC^o2-ruLY%YLY^&HuUUy>9KzQymfyttBc>9us>20LPq=cK`qY
+
+literal 0
+HcmV?d00001
+
+diff --git a/tests/fixtures/root.pem b/tests/fixtures/root.pem
+new file mode 100644
+index 0000000..2371486
+--- /dev/null
++++ b/tests/fixtures/root.pem
+@@ -0,0 +1,12 @@
++-----BEGIN CERTIFICATE-----
++MIIBrjCCAVWgAwIBAgIUPCiiZCMuZxELjus6ymwKG1QqNMYwCgYIKoZIzj0EAwIw
++JTEjMCEGA1UEAwwacmNzLXJzIHN5bnRoZXRpYyB0ZXN0IHJvb3QwHhcNMjYxMDE2
++MjAzNjM5WhcNMzYxMDEzMjAzNjM5WjAlMSMwIQYDVQQDDBpyY3MtcnMgc3ludGhl
++dGljIHRlc3Qgcm9vdDBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABP39/b3VGy43
++urAeo1t46CpYDwnrZsaY044D6QCjtq+Hgy2PCSGEQQ8lVINOJsMLeMvUfPnvHWSG
++e9w8yp6zNpCjYzBhMB0GA1UdDgQWBBQ2aH2TdpeNWlAc/WdBdriuMGwQ7jAfBgNV
++HSMEGDAWgBQ2aH2TdpeNWlAc/WdBdriuMGwQ7jAPBgNVHRMBAf8EBTADAQH/MA4G
++A1UdDwEB/wQEAwIBBjAKBggqhkjOPQQDAgNHADBEAiBS5+cB06Wx5c/Hmef4JegY
++sCM0aonJM1SCV2kcwODqAwIgVs1vGIdAbv3lu3b4JAaf+brvLX3ZyogY4TsYeMnG
++FuA=
++-----END CERTIFICATE-----
+diff --git a/tests/provisioning_completeness.rs b/tests/provisioning_completeness.rs
+new file mode 100644
+index 0000000..dc56375
+--- /dev/null
++++ b/tests/provisioning_completeness.rs
+@@ -0,0 +1,159 @@
++// Copyright 2026 rcs-rs contributors
++// SPDX-License-Identifier: Apache-2.0
++
++use rust_rcs_client::provisioning::{
++    local_provisioning_doc::load_provisionging_doc, wap_provisioning_doc::WapProvisioningDoc,
++};
++
++const VALID: &str = r#"<wap-provisioningdoc><characteristic type="VERS"><parm name="version" value="1"/><parm name="validity" value="600"/></characteristic></wap-provisioningdoc>"#;
++
++#[test]
++fn complete_configuration_retains_its_values() {
++    let doc: WapProvisioningDoc = VALID.parse().ok().unwrap();
++    assert_eq!(doc.get_vers_token(), Some((1, 600, None)));
++}
++
++#[test]
++fn every_truncated_prefix_is_rejected() {
++    for end in 0..VALID.len() {
++        assert!(
++            VALID[..end].parse::<WapProvisioningDoc>().is_err(),
++            "accepted truncated prefix at {end}: {:?}",
++            &VALID[..end]
++        );
++    }
++}
++
++#[test]
++fn malformed_or_multiple_documents_are_rejected() {
++    for xml in [
++        format!("{VALID}<wap-provisioningdoc/>"),
++        format!("{VALID}trailing text"),
++        format!("leading text{VALID}"),
++        format!("<wrapper>{VALID}</wrapper>"),
++        VALID.replace("</characteristic>", "</different>"),
++        VALID.replace("value=\"1\"", "value=\"&missing;\""),
++        VALID.replace("name=\"version\"", "name=\"version\" name=\"duplicate\""),
++    ] {
++        assert!(
++            xml.parse::<WapProvisioningDoc>().is_err(),
++            "accepted malformed synthetic document"
++        );
++    }
++}
++
++#[test]
++fn cached_truncated_configuration_is_rejected() {
++    let path = std::env::temp_dir().join(format!("rcs-rs-eval-cache-{}.xml", std::process::id()));
++    let xml = format!(
++        r#"<provisioning-doc><provisioning-info default="yes" id="synthetic" VERS_version="1" VERS_validity_through="2030-01-01T00:00:00Z">{VALID}</provisioning-info></provisioning-doc>"#
++    );
++    std::fs::write(&path, &xml).unwrap();
++    assert!(load_provisionging_doc(path.to_str().unwrap()).is_some());
++    for end in [
++        xml.find("</wap-provisioningdoc>").unwrap(),
++        xml.find("</provisioning-info>").unwrap(),
++        xml.find("</provisioning-doc>").unwrap(),
++    ] {
++        std::fs::write(&path, &xml[..end]).unwrap();
++        assert!(
++            load_provisionging_doc(path.to_str().unwrap()).is_none(),
++            "accepted truncated cache"
++        );
++    }
++    std::fs::remove_file(path).unwrap();
++}
++
++#[test]
++fn buffered_reader_rejects_unclosed_root() {
++    use quick_xml::{events::Event, Reader};
++    use rust_rcs_client::provisioning::wap_provisioning_doc::read_wap_provisioning_doc;
++    for (xml, expected) in [
++        (VALID, true),
++        (&VALID[..VALID.len() - 1], false),
++        (
++            &VALID[..VALID.find("</wap-provisioningdoc>").unwrap()],
++            false,
++        ),
++    ] {
++        let mut reader = Reader::from_reader(std::io::Cursor::new(xml));
++        let mut buffer = Vec::new();
++        let Event::Start(start) = reader.read_event_into(&mut buffer).unwrap() else {
++            panic!("synthetic root missing")
++        };
++        assert_eq!(
++            read_wap_provisioning_doc(&mut reader, &mut Vec::new(), &start).is_ok(),
++            expected
++        );
++    }
++}
++
++#[test]
++fn complete_document_allows_xml_framing() {
++    let xml = format!("<?xml version=\"1.0\"?>\n<!-- before -->{VALID}\n<!-- after -->");
++    assert_eq!(
++        xml.parse::<WapProvisioningDoc>()
++            .ok()
++            .unwrap()
++            .get_vers_token(),
++        Some((1, 600, None))
++    );
++}
++
++#[test]
++fn incomplete_delimiters_and_malformed_root_attributes_are_rejected() {
++    for xml in [
++        "<wap-provisioningdoc></wap-provisioningdoc ",
++        "<wap-provisioningdoc></wap-provisioningdoc\t",
++        "<wap-provisioningdoc></wap-provisioningdoc\r\n",
++        "<wap-provisioningdoc/",
++        "<wap-provisioningdoc x=\"unclosed/",
++        "<wap-provisioningdoc bogus/>",
++        "<wap-provisioningdoc x=\"&unknown;\"/>",
++        "<wap-provisioningdoc x=\"1\" x=\"2\"/>",
++        "<wap-provisioningdoc bogus></wap-provisioningdoc>",
++    ] {
++        assert!(
++            xml.parse::<WapProvisioningDoc>().is_err(),
++            "accepted incomplete/malformed root"
++        );
++    }
++    let empty = "<wap-provisioningdoc/>";
++    assert!(empty.parse::<WapProvisioningDoc>().is_ok());
++    for end in 0..empty.len() {
++        assert!(empty[..end].parse::<WapProvisioningDoc>().is_err());
++    }
++}
++
++#[test]
++fn trimming_cannot_hide_an_unfinished_delimiter() {
++    use quick_xml::{events::Event, Reader};
++    use rust_rcs_client::provisioning::wap_provisioning_doc::read_wap_provisioning_doc;
++    for (xml, expected) in [
++        ("<wap-provisioningdoc>  </wap-provisioningdoc>", true),
++        ("<wap-provisioningdoc>  </wap-provisioningdoc", false),
++        ("<wap-provisioningdoc>  </wap-provisioningdoc ", false),
++    ] {
++        let mut reader = Reader::from_reader(std::io::Cursor::new(xml));
++        reader.config_mut().trim_text(true);
++        let mut buffer = Vec::new();
++        let Event::Start(start) = reader.read_event_into(&mut buffer).unwrap() else {
++            panic!("synthetic root missing")
++        };
++        assert_eq!(
++            read_wap_provisioning_doc(&mut reader, &mut Vec::new(), &start).is_ok(),
++            expected
++        );
++    }
++}
++
++#[test]
++fn cached_unfinished_delimiter_is_rejected() {
++    let path = std::env::temp_dir().join(format!(
++        "rcs-rs-eval-cache-delimiter-{}.xml",
++        std::process::id()
++    ));
++    std::fs::write(&path, "<provisioning-doc><provisioning-info default=\"yes\" id=\"synthetic\" VERS_version=\"1\" VERS_validity_through=\"2030-01-01T00:00:00Z\"><wap-provisioningdoc></wap-provisioningdoc></provisioning-info></provisioning-doc ").unwrap();
++    assert!(load_provisionging_doc(path.to_str().unwrap()).is_none());
++    std::fs::remove_file(path).unwrap();
++}
+diff --git a/tests/trust_roots.rs b/tests/trust_roots.rs
+new file mode 100644
+index 0000000..e8596ce
+--- /dev/null
++++ b/tests/trust_roots.rs
+@@ -0,0 +1,54 @@
++// Copyright 2026 rcs-rs contributors
++// SPDX-License-Identifier: Apache-2.0
++
++use rust_rcs_client::{context::Context, new_rcs_client, RcsRuntime};
++use std::{ffi::CString, ptr, sync::Arc};
++
++#[test]
++fn context_accepts_valid_roots_and_rejects_missing_roots() {
++    let path = std::env::temp_dir().join(format!("rcs-rs-eval-context-{}", std::process::id()));
++    std::fs::create_dir_all(path.join("certs")).unwrap();
++    let rt = Arc::new(tokio::runtime::Runtime::new().unwrap());
++    assert!(Context::new(path.to_str().unwrap(), Arc::clone(&rt)).is_err());
++    for (name, data) in [
++        ("root.pem", include_bytes!("fixtures/root.pem").as_slice()),
++        ("root.der", include_bytes!("fixtures/root.der").as_slice()),
++    ] {
++        std::fs::write(path.join("certs").join(name), data).unwrap();
++        // Construct and drop only; no DNS or HTTP request is submitted.
++        drop(Context::new(path.to_str().unwrap(), Arc::clone(&rt)).unwrap());
++        std::fs::remove_file(path.join("certs").join(name)).unwrap();
++    }
++    std::fs::remove_dir_all(path).unwrap();
++}
++
++#[test]
++fn c_constructor_returns_null_for_unusable_roots() {
++    let mut runtime = RcsRuntime {
++        rt: Arc::new(tokio::runtime::Runtime::new().unwrap()),
++    };
++    let path = std::env::temp_dir().join(format!("rcs-rs-eval-empty-{}", std::process::id()));
++    std::fs::create_dir(&path).unwrap();
++    let path_string = CString::new(path.to_str().unwrap()).unwrap();
++    let synthetic = CString::new("synthetic-identifier").unwrap();
++    let client = unsafe {
++        new_rcs_client(
++            &mut runtime,
++            0,
++            1,
++            1,
++            synthetic.as_ptr(),
++            synthetic.as_ptr(),
++            ptr::null(),
++            path_string.as_ptr(),
++            None,
++            ptr::null_mut(),
++            None,
++            ptr::null_mut(),
++            None,
++            ptr::null_mut(),
++        )
++    };
++    assert!(client.is_none());
++    std::fs::remove_dir(path).unwrap();
++}

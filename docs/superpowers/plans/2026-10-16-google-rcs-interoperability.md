@@ -140,8 +140,8 @@ cargo test --manifest-path private/upstream/rust-rcs-client/Cargo.toml --lib
 
 - [x] Distinguish no tests from passing behavioral tests. Test linking an actual host, since type checking does not establish platform callback availability.
 - [x] Audit the paths listed in the source references for raw auth/config/body logs, TLS handling, callback nullability and platform stubs. Record findings with symbols and caller locations.
-- [ ] Suppress/remove sensitive protocol logs before any live evaluation. Pin this with synthetic sentinel credentials and assert that captured output lacks each sentinel.
-- [ ] Preserve licenses; commit the baseline decision and any narrowly necessary patches. Do not bulk-fix unrelated warnings.
+- [x] Suppress/remove sensitive protocol logs before any live evaluation. The pinned core patch silences the shared logger in every build; synthetic process-output sentinels pass.
+- [x] Preserve licenses and deliver narrowly necessary baseline patches in `patches/upstream/`; keep unrelated warnings unchanged. See the apply/test record and known upstream doctest failure there.
 
 **Exit:** A buildable, linked evaluation host with no known secret logging on the exercised path; explicit supported platform operations. This is not a network-access success.
 
