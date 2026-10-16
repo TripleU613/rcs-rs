@@ -16,6 +16,13 @@ provider admits the client. The first implementation milestone establishes
 provisioning and registration. It must report the actual failure stage when
 that cannot be completed.
 
+The shipping host is an ordinary installed APK on stock and custom Android,
+including vanilla ROMs without GApps. Google Messages, microG, root and another
+app's signing identity or credentials must not be required at runtime. Carrier
+and server admission remain necessary; universal ROM compatibility is a target,
+not an established result. Privileged research adapters do not satisfy this
+acceptance condition.
+
 This repository starts with the bootstrap milestone. A complete messaging engine
 requires later capability discovery, messaging transport and delivery handling.
 No UI, SMS database migration or root module belongs in this milestone.
@@ -74,6 +81,9 @@ to the selected subscription, cellular network binding and supported SIM/SMS
 authentication facilities. An ordinary SMS app may lack permissions required by
 a particular provider flow; record the exact unavailable capability. Merely
 becoming the default SMS app does not guarantee provisioning access.
+Where SIM EAP-AKA is inaccessible, investigate a provider-supported number/SMS
+verification route. Do not silently turn a privileged SIM helper into a shipping
+dependency.
 
 ## Trust boundaries
 

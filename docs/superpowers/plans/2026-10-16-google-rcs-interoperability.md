@@ -20,6 +20,7 @@
 - The last constraint applies to bootstrap; a minimal Android test host and later existing-app integration are separately scoped below.
 - Provider admission, registration, message delivery and encryption are distinct results. No stage substitutes for a later stage's acceptance test.
 - Keep carrier/device-specific support explicit. A successful rooted test does not establish support for ordinary installed apps.
+- Shipping authentication must use the client's own identity from a normal APK on stock/custom Android, including vanilla ROMs without GApps; Google Messages, microG and root are research tools only.
 
 ## Review focus
 
@@ -42,6 +43,11 @@ transport; successful HTTP/SIP submission alone is insufficient. Google Messages
 on A must not authenticate, relay or send on the library's behalf. Prevent
 competing registrations while testing, using supported deactivation procedures
 and their propagation time. Keep original app data intact.
+
+The final portability check also runs without GApps/microG and privileged
+installation. An independently signed ordinary APK must obtain its own usable
+credentials; reference package/certificate headers and copied app tokens do not
+establish that result. The diagnostic APK's API29 floor is not a product SDK floor.
 
 Minimum repeatability: ten short messages in each direction, including Unicode,
 and a reconnect test with no duplicates. Capture actual delivery evidence and

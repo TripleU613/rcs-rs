@@ -17,6 +17,12 @@ const AUTH_MEDIA_TYPE: &str = "application/vnd.gsma.cfg-clientauth+xml";
 const AUTH_NS: &str = "urn:gsma:params:xml:ns:cfg:clientauth:req";
 const MAX_BODY: usize = 64 * 1024;
 
+#[derive(Clone, Copy, Debug)]
+pub enum ClientAuthenticity {
+    /// Advertise the legacy Google method. The host supplies its genuine proof separately.
+    DroidGuard,
+}
+
 pub struct ClientParameters<'a> {
     pub terminal_vendor: &'a str,
     pub terminal_model: &'a str,
@@ -102,6 +108,7 @@ impl AcsSession {
     fn initial_request(
         &self,
         parameters: &ClientParameters<'_>,
+        authenticity: Option<ClientAuthenticity>,
     ) -> Result<reqwest::Request, Error> {
         let metadata = [
             ("terminal_vendor", parameters.terminal_vendor),
@@ -117,34 +124,67 @@ impl AcsSession {
                 return Err(Error::InvalidInput(name));
             }
         }
-        self.client
-            .get(self.endpoint.clone())
-            .query(&[
-                ("vers", "0"),
-                ("rcs_state", "0"),
-                metadata[0],
-                metadata[1],
-                metadata[2],
-                metadata[3],
-                metadata[4],
-                metadata[5],
-                metadata[6],
-                ("device_type", "phone"),
-                ("token", ""),
-                ("SMS_port", "0"),
-                ("client_authenticity_support", "goog-droidguard"),
-            ])
+        let mut request = self.client.get(self.endpoint.clone()).query(&[
+            ("vers", "0"),
+            ("rcs_state", "0"),
+            metadata[0],
+            metadata[1],
+            metadata[2],
+            metadata[3],
+            metadata[4],
+            metadata[5],
+            metadata[6],
+            ("device_type", "phone"),
+            ("token", ""),
+            ("SMS_port", "0"),
+        ]);
+        if let Some(ClientAuthenticity::DroidGuard) = authenticity {
+            request = request.query(&[("client_authenticity_support", "goog-droidguard")]);
+        }
+        request
             .build()
             .map_err(|e| Error::Transport(e.without_url()))
     }
 
-    /// One initial request, preserving origin-scoped cookies in this session. No automatic retries.
+    /// One initial request, preserving origin-scoped cookies. No automatic retries.
+    /// Use `None` when the host has no client-attestation implementation. Advertising
+    /// DroidGuard requires a genuine compatible proof provider; this crate supplies none.
     pub async fn initial_challenge(
         &self,
         parameters: &ClientParameters<'_>,
+        authenticity: Option<ClientAuthenticity>,
     ) -> Result<Response, Error> {
         let _exchange = self.begin_exchange()?;
-        let request = self.initial_request(parameters)?;
+        let request = self.initial_request(parameters, authenticity)?;
+        let (content_type, body) = self.response_body(request).await?;
+        parse_response(&content_type, &body)
+    }
+
+    /// Begin number-based provisioning with only the caller's explicit capabilities.
+    /// The caller supplies its own number in international `+digits` form (up to 15 digits).
+    /// This can trigger provider verification SMS. It does not submit an OTP or establish RCS.
+    pub async fn msisdn_challenge(
+        &self,
+        parameters: &ClientParameters<'_>,
+        msisdn: &str,
+        authenticity: Option<ClientAuthenticity>,
+    ) -> Result<Response, Error> {
+        let digits = msisdn
+            .strip_prefix('+')
+            .ok_or(Error::InvalidInput("MSISDN"))?;
+        if digits.is_empty()
+            || digits.len() > 15
+            || digits.starts_with('0')
+            || !digits.bytes().all(|byte| byte.is_ascii_digit())
+        {
+            return Err(Error::InvalidInput("MSISDN"));
+        }
+        let _exchange = self.begin_exchange()?;
+        let mut request = self.initial_request(parameters, authenticity)?;
+        request
+            .url_mut()
+            .query_pairs_mut()
+            .append_pair("msisdn", msisdn);
         let (content_type, body) = self.response_body(request).await?;
         parse_response(&content_type, &body)
     }
@@ -502,12 +542,18 @@ mod tests {
             reply(200, "Content-Type: application/vnd.gsma.cfg-clientauth+xml\r\n", XML),
         ]).await;
         assert!(matches!(
-            session.initial_challenge(&parameters()).await.unwrap(),
+            session
+                .initial_challenge(&parameters(), Some(ClientAuthenticity::DroidGuard))
+                .await
+                .unwrap(),
             Response::Challenge(_)
         ));
         assert!(session.has_session_cookie());
         assert!(matches!(
-            session.initial_challenge(&parameters()).await.unwrap(),
+            session
+                .initial_challenge(&parameters(), Some(ClientAuthenticity::DroidGuard))
+                .await
+                .unwrap(),
             Response::Challenge(_)
         ));
         let requests = server.await.unwrap();
@@ -535,7 +581,7 @@ mod tests {
             let (session, server) =
                 mock_session(vec![reply(status, headers, "not a challenge")]).await;
             let error = session
-                .initial_challenge(&parameters())
+                .initial_challenge(&parameters(), Some(ClientAuthenticity::DroidGuard))
                 .await
                 .expect_err("HTTP failure");
             match error {
@@ -563,10 +609,163 @@ mod tests {
         );
         let (session, server) = mock_session(vec![reply]).await;
         assert!(matches!(
-            session.initial_challenge(&parameters()).await,
+            session
+                .initial_challenge(&parameters(), Some(ClientAuthenticity::DroidGuard))
+                .await,
             Err(Error::BodyTooLarge)
         ));
         server.await.unwrap();
+    }
+
+    #[test]
+    fn ordinary_client_does_not_advertise_google_attestation() {
+        let session = AcsSession::new("https://acs.example.test/").unwrap();
+        let request = session.initial_request(&parameters(), None).unwrap();
+        assert!(
+            !request
+                .url()
+                .query_pairs()
+                .any(|(key, _)| key == "client_authenticity_support")
+        );
+    }
+
+    #[tokio::test]
+    async fn number_based_request_sends_only_the_explicit_number_without_google_attestation() {
+        let (session, server) = mock_session(vec![reply(
+            200,
+            "Content-Type: application/vnd.wap.connectivity-xml\r\n",
+            "<wap-provisioningdoc/>",
+        )])
+        .await;
+        assert!(matches!(
+            session
+                .msisdn_challenge(&parameters(), "+15550100100", None)
+                .await
+                .unwrap(),
+            Response::WapConfiguration(_)
+        ));
+        let requests = server.await.unwrap();
+        assert_eq!(requests.len(), 1);
+        let target = requests[0]
+            .lines()
+            .next()
+            .unwrap()
+            .split_whitespace()
+            .nth(1)
+            .unwrap();
+        let url = reqwest::Url::parse(&format!("https://fixture.test{target}")).unwrap();
+        let query: std::collections::BTreeMap<_, _> = url.query_pairs().collect();
+        assert_eq!(
+            query.get("msisdn").map(|s| s.as_ref()),
+            Some("+15550100100")
+        );
+        for field in [
+            "IMSI",
+            "IMEI",
+            "client_authenticity_support",
+            "as_temp_token",
+        ] {
+            assert!(!query.contains_key(field));
+        }
+    }
+
+    #[tokio::test]
+    async fn number_based_request_advertises_droidguard_only_when_explicitly_supplied() {
+        let (session, server) = mock_session(vec![reply(
+            200,
+            "Content-Type: application/vnd.gsma.cfg-clientauth+xml\r\n",
+            XML,
+        )])
+        .await;
+        assert!(matches!(
+            session
+                .msisdn_challenge(
+                    &parameters(),
+                    "+15550100100",
+                    Some(ClientAuthenticity::DroidGuard)
+                )
+                .await
+                .unwrap(),
+            Response::Challenge(_)
+        ));
+        let requests = server.await.unwrap();
+        assert_eq!(requests.len(), 1);
+        let target = requests[0]
+            .lines()
+            .next()
+            .unwrap()
+            .split_whitespace()
+            .nth(1)
+            .unwrap();
+        let url = reqwest::Url::parse(&format!("https://fixture.test{target}")).unwrap();
+        let query: std::collections::BTreeMap<_, _> = url.query_pairs().collect();
+        assert_eq!(
+            query.get("msisdn").map(|s| s.as_ref()),
+            Some("+15550100100")
+        );
+        assert_eq!(
+            query.get("client_authenticity_support").map(|s| s.as_ref()),
+            Some("goog-droidguard")
+        );
+    }
+
+    #[tokio::test]
+    async fn number_based_http_errors_redact_the_number_and_preserve_backoff() {
+        let number = "+15550100100";
+        let (session, server) = mock_session(vec![reply(503, "Retry-After: 60\r\n", number)]).await;
+        let error = session
+            .msisdn_challenge(&parameters(), number, None)
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(error, Error::Http { status: 503, retry_after: Some(delay) } if delay == Duration::from_secs(60))
+        );
+        assert!(!format!("{error:?}").contains(number));
+        assert!(!error.to_string().contains(number));
+        assert_eq!(server.await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn rejects_malformed_explicit_numbers_before_http() {
+        let session = AcsSession::new("https://127.0.0.1:1/").unwrap();
+        for number in [
+            "",
+            "+",
+            "15550100100",
+            "+0123456",
+            "+1234567890123456",
+            "+1555private-number",
+            "+15550100100\r\nsecret",
+            "+١٢٣٤٥",
+        ] {
+            let error = session
+                .msisdn_challenge(&parameters(), number, None)
+                .await
+                .unwrap_err();
+            assert!(matches!(error, Error::InvalidInput("MSISDN")));
+            assert!(!format!("{error:?}").contains("private-number"));
+            assert!(!format!("{error:?}").contains("secret"));
+        }
+    }
+
+    #[tokio::test]
+    async fn ordinary_client_omits_attestation_capability_on_the_wire() {
+        let (session, server) = mock_session(vec![reply(
+            200,
+            "Content-Type: application/vnd.wap.connectivity-xml\r\n",
+            "<wap-provisioningdoc/>",
+        )])
+        .await;
+        assert!(matches!(
+            session
+                .initial_challenge(&parameters(), None)
+                .await
+                .unwrap(),
+            Response::WapConfiguration(_)
+        ));
+        let requests = server.await.unwrap();
+        assert_eq!(requests.len(), 1);
+        assert!(!requests[0].contains("client_authenticity_support"));
     }
 
     #[test]
@@ -580,7 +779,9 @@ mod tests {
             assert!(AcsSession::new(url).is_err());
         }
         let session = AcsSession::new("https://acs.example.test/").unwrap();
-        let request = session.initial_request(&parameters()).unwrap();
+        let request = session
+            .initial_request(&parameters(), Some(ClientAuthenticity::DroidGuard))
+            .unwrap();
         let pairs: std::collections::BTreeMap<_, _> = request
             .url()
             .query_pairs()
@@ -699,8 +900,8 @@ mod tests {
         let session = AcsSession::new("https://acs.example.test/").unwrap();
         let mut metadata = parameters();
         metadata.terminal_model = "";
-        assert!(session.initial_request(&metadata).is_err());
+        assert!(session.initial_request(&metadata, None).is_err());
         metadata.terminal_model = "Test\nphone";
-        assert!(session.initial_request(&metadata).is_err());
+        assert!(session.initial_request(&metadata, None).is_err());
     }
 }

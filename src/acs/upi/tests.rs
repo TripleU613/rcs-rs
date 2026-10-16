@@ -394,7 +394,7 @@ async fn an_active_upi_context_excludes_cookie_mutating_challenges_until_dropped
         Err(Error::InvalidInput("ACS session exchange already active"))
     ));
     assert!(matches!(
-        session.initial_challenge(&p.client).await,
+        session.initial_challenge(&p.client, None).await,
         Err(Error::InvalidInput("ACS session exchange already active"))
     ));
     drop(c);

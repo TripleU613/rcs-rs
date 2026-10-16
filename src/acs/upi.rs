@@ -100,7 +100,7 @@ impl UpiParameters<'_> {
 impl AcsSession {
     fn upi_request(&self, p: &UpiParameters<'_>) -> Result<reqwest::Request, Error> {
         p.validate()?;
-        let mut request = self.initial_request(&p.client)?;
+        let mut request = self.initial_request(&p.client, None)?;
         let pairs: Vec<(String, String)> = request
             .url()
             .query_pairs()

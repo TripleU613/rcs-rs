@@ -6,7 +6,12 @@ The goal is to let an existing SMS app add carrier-backed RCS through a reusable
 library. The app retains its conversation UI and SMS transport. The RCS engine
 handles service provisioning, registration, capabilities and RCS messaging.
 
-**Status: Rust configuration discovery works against the live service.**
+The shipping target is a normal APK on stock and custom Android, including
+vanilla builds without GApps. The engine must authenticate its own client;
+Google Messages, microG and root are laboratory tools, not shipping requirements.
+That independent deployment remains unproven.
+
+**Status: Rust configuration discovery works with reference caller credentials.**
 The Rust ACS client obtains a real DroidGuard challenge and retains its session
 cookie. Rust consent lookup also works with genuine caller-supplied platform
 identity/proof inputs. Independent probes completed real SIM authentication and
@@ -19,6 +24,8 @@ the corrected Rust request receives direct TS43 support and a carrier endpoint.
 Signed read-only number lookup succeeds with the client's owned credentials,
 but currently returns no verified-number records.
 Registration and Google Messages interoperability remain unverified.
+The [ordinary-client admission record](docs/research/ordinary-client.md) tracks
+own-APK permissions and backend checks separately from the reference-client work.
 
 Success means this library sends a text to current Google Messages and receives
 a reply over **verified RCS**, independently of Google Messages on the sending
@@ -70,8 +77,23 @@ host, without response tokens.
 The separate initial ACS probe takes an HTTPS endpoint and client metadata:
 
 ```sh
-cargo run --example challenge -- HTTPS_URL VENDOR MODEL OS_VERSION CLIENT_VENDOR CLIENT_VERSION RCS_PROFILE RCS_VERSION
+cargo run --example challenge -- HTTPS_URL VENDOR MODEL OS_VERSION CLIENT_VENDOR CLIENT_VERSION RCS_PROFILE RCS_VERSION [--droidguard]
 ```
+
+`AcsSession::initial_challenge(&parameters, None)` omits client-authenticity
+advertising. Explicit `Some(ClientAuthenticity::DroidGuard)` (CLI:
+`--droidguard`) advertises the Google method; the host must supply its genuine
+proof separately. Omission does not bypass a provider's authenticity requirement.
+The recovered UPI path continues to advertise its distinct `goog-mls-upi` method.
+
+`AcsSession::msisdn_challenge(&parameters, own_number, None)` begins number-based
+provisioning without IMSI, IMEI, a Google API key or a client-authenticity
+advertisement. Its third argument accepts the same explicit authenticity choice.
+The number must use international `+digits` form, at most 15
+digits. This explicit call can trigger a provider verification SMS. OTP submission,
+accepted provisioning and registration are not implemented by this method.
+Supply provider-formatted metadata: for example, vendor `RCRS` and version
+`RCRS-0.1`, rather than an APK's unformatted version name.
 
 `cargo run --example get_consent -- /private/input.json` performs consumer
 consent lookup. The example documents its private-file inputs. It requires a
@@ -136,3 +158,8 @@ subscription's UPI credential/provisioning path from Android single registration
 and the carrier temporary-token route.
 
 Nothing has been pushed or published.
+
+The [ordinary Android capability probe](tools/android-admission-probe/README.md)
+builds as a small self-targeted instrumentation APK without Google SDKs. It reports
+permission gates and identifier availability without exporting subscriber values;
+it neither changes the SMS role nor tests RCS registration.
