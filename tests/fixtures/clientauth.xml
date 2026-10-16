@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<client-authenticity-request xmlns="urn:gsma:params:xml:ns:cfg:clientauth:req">
+  <method name="goog-droidguard" id="synthetic-method-id">
+    <param name="challenge">synthetic-challenge</param>
+  </method>
+  <nonce>synthetic-nonce</nonce>
+</client-authenticity-request>

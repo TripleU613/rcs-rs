@@ -6,9 +6,10 @@ The goal is to let an existing SMS app add carrier-backed RCS through a reusable
 library. The app retains its conversation UI and SMS transport. The RCS engine
 handles service provisioning, registration, capabilities and RCS messaging.
 
-**Status: initialized; implementation has not started.** No Google Messages
-interoperability has been demonstrated. A reachable configuration server alone
-does not establish that a provider accepts independent clients.
+**Status: Rust configuration discovery works against the live service.**
+The Rust ACS client also obtains a real DroidGuard challenge and retains its
+session cookie. Subscriber
+provisioning, registration and Google Messages interoperability remain unverified.
 
 Success means this library sends a text to current Google Messages and receives
 a reply over **verified RCS**, independently of Google Messages on the sending
@@ -29,6 +30,34 @@ verification of Tello or Google Messages compatibility.
 
 Use synthetic fixtures in this repository. Keep SIM identifiers, phone numbers,
 tokens, provisioning credentials, APKs and raw device captures outside it.
-No upstream source has been copied and no dependencies have been selected yet.
+The bootstrap uses tonic for TLS/HTTP2/gRPC and prost for protobuf. Reference
+application credentials are supplied externally and are not bundled.
+
+## Run the bootstrap probe
+
+Set `RCS_APP_PACKAGE`, `RCS_APP_CERT_SHA1` and `RCS_API_KEY_FILE` (a private
+plaintext file), then run:
+
+```sh
+cargo run --example discover -- MCC MNC DEVICE MANUFACTURER PACKAGE_VERSION
+```
+
+The probe sends MCC/MNC and device/application metadata, with GSF Android ID
+zero. It accepts no phone number, IMSI or IMEI. Backend admission may restrict
+the application credentials. Output contains configuration flags and the ACS
+host, without response tokens.
+
+The separate initial ACS probe takes an HTTPS endpoint and client metadata:
+
+```sh
+cargo run --example challenge -- HTTPS_URL VENDOR MODEL OS_VERSION CLIENT_VENDOR CLIENT_VERSION RCS_PROFILE RCS_VERSION
+```
+
+`cargo test --all-targets` runs the synthetic protocol and localhost transport
+checks. Formatting and strict Clippy also pass. No live credentials are needed
+for these tests.
+
+See [recovered GApps behavior](docs/research/gapps-bootstrap.md) for artifact
+identities, wire evidence, live checks and remaining blockers.
 
 Nothing has been pushed or published.

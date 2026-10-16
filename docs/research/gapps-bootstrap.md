@@ -1,0 +1,245 @@
+# GApps RCS bootstrap: recovered behavior
+
+Investigation date: 2026-10-16. Status: bootstrap discovery and an ACS challenge
+have been reproduced; subscriber provisioning, registration and message exchange
+remain incomplete. Findings distinguish static code from execution.
+
+## Artifact identity
+
+| Artifact | Version | SHA-256 | REA package evidence |
+| --- | --- | --- | --- |
+| Messages reference, old | 151793063 / 20220926 | `9238cb2d0da0cea7926f6d18d089a582f34f3a645d38f2049a22e0bd0bff31a2` | `ev_6ac5740146d3f47bcb7cd1253c03d0c8bae65485c1f6bdb89b621183fc3c4fda` |
+| Messages reference, current | 324451063 / 20261002 | `2f666c55f129da84e1606d06e183ee08faf2b560d5a53cb44835007b4a97b159` | `ev_20f422379c37900f1f5efa6c6699f70025397f42b9e5a10f47b11d4c9b70a03e` |
+| Carrier Services | 31153903 / 20250826 | `9072f0f010132757f0efa5ad759269667ed2c982633204c01ba4e48c71eecee4` | `ev_b27d8495dec76b0fbff43cb62d7998d3c6db34e969ddd31f3539340f1c879069` |
+| Original Google Play Services, offline backup | 263737035 / 26.37.37 | See private package evidence | `ev_14557c45416b3080baabcd6400fa2288843c2e7ffedfdab9fda669d7dce74574` |
+
+The installed Play Services implementation during live tests is microG. Original
+Google Play Services was inspected offline from the existing backup; it was not
+restored to the phone. APKs, private traces and credentials remain outside Git.
+
+## 1. Configuration discovery works independently
+
+**Observed live:** an independent host request returned HTTP/2 200 with
+`grpc-status: 0` and a 388-byte protobuf response (393-byte gRPC frame).
+The repository Rust implementation independently repeated discovery successfully,
+returning the same ACS and selected flags. Twenty-four offline tests cover request
+fixtures, unknown response bytes, validation, real localhost HTTP2/gRPC trailers,
+backoff reporting without automatic retries and diagnostic redaction.
+
+```text
+Authority: mobileconfiguration-pa.googleapis.com:443
+Method: google.internal.communications.mobileconfiguration.v1.MobileConfigurationService/GetConfiguration
+```
+
+The request supplied the reference application's API key, package name and
+certificate metadata. It did not supply Google-account OAuth, a phone number,
+full IMSI, IMEI or an IMSI prefix. The GSF Android ID was zero, which the
+reference code explicitly supports. This proves the observed metadata can fetch
+carrier configuration; it does not establish unrestricted admission for every
+third-party application or grant RCS subscriber credentials.
+
+Request shape recovered from `elll`, `elml`, `ellt`, `ellk`, `ddmh`, `gedt` and
+related protobuf classes:
+
+```text
+GetConfigurationRequest
+  1: context
+       1: request UUID (string)
+       2: GSF Android ID (int64)
+  2: repeated parameters
+       1: request-local correlation ID (string)
+       2: configuration type (1 = RCS onboarding)
+       3: device (device name, manufacturer, form factor)
+       4: carrier (MCC, MNC, optional carrier attributes)
+       6: repeated package name/version pairs
+```
+
+The default OAuth flag is false. Static client construction uses an API key in
+that case and adds `X-Android-Package` and `X-Android-Cert`. Certificate selection
+uses the first entry in signing-certificate history, which differs from the
+current signer for this artifact. No API key belongs in the source repository.
+
+For the tested MCC/MNC, the actual response selected:
+
+| Field | Observed value |
+| --- | --- |
+| ACS | `rcs-acs-tmo-us.jibe.google.com` |
+| RCS enabled state | Enabled (raw enum 1) |
+| Skip header enrichment | true |
+| RCS profile/version | `UP_T` / `5.1B` |
+| IMEI/IMSI format | Ignored (raw enum 4) |
+| DroidGuard with HTTP GET | true |
+
+Raw PII enum values must not be confused with the old client's internal format
+integers. In the current artifact, `geef.c(4)` maps to enum representation 6,
+`PII_FORMAT_IGNORED`. No inference that full identifiers are required follows
+from this response.
+
+Response shape: field 1 repeats configurations; each configuration has its
+correlation ID in field 1, validity duration in field 2 and onboarding flags in
+oneof field 3. Onboarding ACS is oneof field 2 (direct hostname) or field 3
+(MCC URL format). The server also returned fields absent from this client
+schema; they must not be mislabelled or treated as a decode failure.
+
+## 2. Google ACS issues an actual challenge
+
+**Observed live:** a separate HTTPS GET to the discovered ACS with terminal and
+client metadata and `client_authenticity_support=goog-droidguard` returned:
+
+```text
+HTTP 200
+Content-Type: application/vnd.gsma.cfg-clientauth+xml; charset=utf-8
+Root: {urn:gsma:params:xml:ns:cfg:clientauth:req}client-authenticity-request
+Method: goog-droidguard
+Fields: nonce, method id, challenge parameter
+```
+
+This request also omitted a phone number, IMSI and IMEI. The nonce, challenge
+and session cookie were retained privately. The repository Rust ACS client also
+completed this initial exchange live and retained its cookie in the session.
+Offline checks exercise cookie scoping, redirects, error backoff, streamed body
+limits and XML namespace/duplicate/missing-field handling. Receiving this document establishes
+the challenge step, not successful attestation, subscriber verification or
+provisioning. An HTTP 200 body of this type is not a WAP provisioning document.
+
+Static code agrees: `ejts.j` requests this method, `ejzs` parses the nonce and
+method data, and `ejts.i` stores them for subsequent states. Newer request
+attestation paths also advertise `goog-mls-upi` and
+`goog-mls-config-refresh` (`ejvn.k`); those were not exercised live.
+
+## 3. The old carrier error is a local bootstrap failure
+
+**Observed live, old build:** no ACS was supplied by the configuration provider.
+`bdne.b`/`bdsf.f` produced `DISABLED_VIA_GSERVICES` before contacting a server.
+The primary and application-suffixed Phenotype namespaces both returned no rows.
+
+The local ACS selector prefers a developer override, then a configured ACS,
+then an MCC template, then a gated standard hostname. Relevant namespace:
+`com.google.android.ims.library`; relevant prefix: `RcsFlags__`.
+
+A backed-up, temporary override to the standard carrier hostname moved the app
+to `CARRIER_SETUP_PENDING` and produced a real HTTP 400. `bdks.b` explains this:
+header enrichment sends the bare ACS URL, without the normal query builder.
+The endpoint's bare-request error requires terminal/subscriber parameters. The
+recovered current configuration's `skip_header_enrichment=true` is therefore
+material to this flow.
+
+An experimental in-memory state-selection hook crashed the old RCS process
+because its return value was incompatible with the expected type. That run
+does not establish anything about server acceptance. The app was restarted and
+the temporary debug preferences and persisted ACS override were removed.
+
+## 4. Current phone blocker: Constellation token acquisition
+
+The verified 2026 Messages splits were installed while preserving app data and
+retaining backups. **Observed live at 01:08 EDT:**
+
+```text
+Using config server URL from ddml
+EnabledState -> CheckPreconditionsState -> InProgressState -> ReadyState
+dedm: C11N token request failed. Returning empty optional.
+Constellation.API: API_DISABLED
+RetryState
+```
+
+The missing operation is precisely service 155, Binder transaction 4,
+`get_iid_token` feature version 1. `dedl` requests project `466216207879`.
+The real GMS implementation obtains a legacy IID/GCM registration token in its
+own GMS application context, scope `GCM`. This request contains no phone number.
+
+Number verification is a separate transaction 3 (`verify_phone_number` v2).
+Its request contains a policy ID, certificate/nonce and RCS consent metadata;
+field 1 must not be mistaken for the phone number. Original GMS code resolves
+`phonedeviceverification-pa.googleapis.com:443` and PhoneDeviceVerification
+and PhoneNumber RPC families. Those RPCs were not exercised live.
+
+**Observed live:** existing microG `RegisterRequest` machinery, using its own
+GMS context and check-in, obtained a Google-issued registration token for the
+requested project. This probe did not overwrite microG's cached registrations.
+The token is private. A bounded in-memory diagnostic supplied this genuine
+token to `dedm.a`; the app moved from `ReadyState` to `VerifyMsisdnState`.
+That establishes progress past the local token gate, not server acceptance or
+equivalence to every legacy IID field. The separate `verifyPhoneNumber` call
+then failed locally with `API_DISABLED`; the current app reported that fallback
+to non-UPI provisioning is removed. The request's observed policy was
+`upi-carrier-tos-ts43`, mode 0, boolean flag true, with one IMSI request. An unmerged
+microG fork is a reference only; it was not installed or trusted as evidence of
+interoperability. No ACS attestation rejection has been established.
+
+A separate read-only `PhoneNumber/GetVerifiedPhoneNumbers` probe used microG's
+already-existing own-GMS token for project `745476177629`, reference static
+application metadata and fresh caller nonce. It omitted client signature and
+DroidGuard. The gateway returned gRPC `PERMISSION_DENIED` with an Android-client
+admission error; no verified records or JWT were obtained. That result does not
+establish a requirement for either omitted field because admission failed first.
+The first probe used the current signer incorrectly. Original GMS's shipped
+certificate accessor uses the oldest signer; after correcting that header from
+verified APK lineage, a second probe passed application admission but returned
+gRPC `INVALID_ARGUMENT`: `could not verify iid_token`. A generic Google-issued
+GCM registration therefore cannot be assumed to satisfy the backend's legacy
+IID validation. The key-bound registration protocol remains under investigation;
+optional `X-Goog-Spatula` metadata has not yet been exercised.
+
+Original GMS's current registration path adds `X-appid`, an 11-character IID
+from SHA-1 of its RSA public key: adjust byte 0 to `(byte & 15) + 112`, then
+Base64URL-encode the first eight bytes without padding. Exact DEX scans found
+no `pub2` literal in the inspected base or Dynamite A/C splits; that fork's
+additional registration hypothesis is not established by this artifact. The
+separate ECDSA client key is advertised by the first Sync/GetConsent header,
+then used for client authentication after backend acknowledgement.
+
+## 5. GMS compliance and ACS attestation are separate
+
+Static original-GMS evidence resolves service 257:
+
+```text
+Action: com.google.android.gms.gmscompliance.service.START
+Binder: com.google.android.gms.gmscompliance.IGmsDeviceComplianceService
+Backend authority: android.googleapis.com:443
+RPC family: GmsCompliance/GetEnforcement
+DroidGuard flow: dcs_get_verdict
+```
+
+This produces a device/GMS compliance verdict. The Binder response contains a
+serialized backend result; it is not an RCS authentication credential. The
+inspected implementation also has fail-open paths. Modern runtime logs show
+microG receiving a `dcs_get_verdict` initialization request, which still does
+not establish an ACS attestation result.
+
+The separately inspected RCS content-binding path uses DroidGuard flow
+`rcs_provisioning` (`ejth`/`ejti`). `ejtc.o` constructs its map from available
+subscriber/verification values, session state, the ACS cookie, a salt and, for
+newer binding versions, the challenge. `fzab -> fugq -> fuha` selects SHA-384:
+`p(value, salt)` hashes UTF-8 `value + salt`, represented by the hash object's
+string form. For version >=2, the map additionally binds the salt hash,
+content-binding version, application name and available challenge/temporary
+SIM token. Exact surrounding wire encoding remains under investigation; no
+fabricated or transplanted attestation token was used.
+
+**Observed live:** the existing Messages DroidGuard client, backed by microG,
+completed flow `rcs_provisioning` with a version-2 content-binding map made from
+the real challenge, cookie, genuine GMS-context push token and fresh session/salt.
+It returned a nonempty encoded result, retained privately. This establishes
+local token generation, not ACS validation, subscriber provisioning or RCS
+registration. The normal app flow remains blocked earlier at number verification.
+
+## Next executable work
+
+1. Preserve the verified Rust discovery path and implement the ACS challenge
+   exchange using synthetic fixtures and externally supplied metadata.
+2. Validate the genuine push-token diagnostic, then trace the separate
+   number-verification and attestation paths under microG.
+3. Reproduce the ACS challenge and its content binding with the selected
+   verification path; distinguish unsupported platform APIs from server rejection.
+4. Obtain authorized provisioning, then registration and the first two-way
+   Google Messages RCS exchange. Those goals are still open.
+
+## Evidence locations
+
+Private root: `Downloads/pixel4a-geekbox/rcs-gapps-re/` under the user's home.
+`messages-static/` contains source and DEX instruction references tied to the
+current APK digest; `mobileconfig-static/` contains the reconstructed schema,
+schema assertions and actual RPC artifacts; `runtime/` contains bounded device
+traces and backups; `carrier-static/` contains Carrier Services and offline GMS
+findings. Private credentials, request bodies and identifiers are not reproduced
+in this report.
