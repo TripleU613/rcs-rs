@@ -1,15 +1,37 @@
 # Access to the test subscription
 
-Checked 2026-10-16. The selected route remains Google UPI number verification,
-followed by the UPI ACS provisioning path. There is no independently admitted RCS
-session yet. Carrier authentication succeeds, but its temporary token alone is
-not the Google verified-number credential needed by this route.
+Checked 2026-10-16. There is no independently admitted RCS session yet. A controlled
+discovery comparison corrected the earlier conclusion that UPI was the only
+available route: supplying the actual installed GMS version enables direct TS43
+carrier authentication. That route does not require Google's UPI number token.
+The newest direct ACS test still returned an invalid configuration without
+subscriber credentials. UPI verification remains throttled separately.
+
+Current Messages includes its own package/version and installed GMS
+package/version in discovery. Holding the request's other fields constant,
+omitting GMS returned UPI disabled (wire 1), direct TS43 disabled and policy
+`upi-mo-strict-policy-mt-priority`; adding the installed compatible implementation's
+actual version returned UPI without ACS fallback (wire 3), direct TS43 enabled,
+a carrier entitlement endpoint and policy `upi-carrier-tos-ts43`. Policy comes
+from a separate type-3 configuration: response oneof field 5, inner string field
+1. It is copied verbatim to `supported_provisioning_types`; it cannot be inferred
+from the UPI enum. Both comparisons held GSF ID at zero, so they establish the
+effect of package context, not complete native-client parity.
+
+The original Messages route selector checks direct TS43 before UPI, but also
+requires local GMS availability at version 254500000. The installed microG
+version is below that local threshold. Our independent carrier adapter can
+perform genuine selected-SIM authentication without claiming that the app's
+local Google SDK gate passed. See [the direct-route evidence](gapps-bootstrap.md#9-direct-ts43-to-acs-path).
 
 ## Current gates
 
 | Stage | Evidence | Remaining requirement |
 | --- | --- | --- |
-| Configuration discovery | Rust receives this subscription's ACS and UPI configuration | Preserve the configured route and actual client metadata |
+| Configuration discovery | Corrected Rust request receives ACS, direct TS43 support and a carrier endpoint | Include actual installed GMS context; preserve route-specific policy |
+| Direct carrier-to-ACS route | Fresh carrier authentication/token, genuine platform proof and owned participant signature reach ACS | Resolve version-0 invalid config and obtain accepted subscriber credentials |
+| Network-path comparison | Direct ACS over selected-SIM cellular also returns invalid config | A different egress did not resolve this tested request |
+| Legacy IMSI route | Source-backed minimal-profile request reaches ACS from host but receives invalid config | Resolve admission; cellular timeouts alone were inconclusive |
 | GMS consent and initial verification | Rust consent works; an earlier probe received a real pending TS43 challenge | A fresh, non-throttled verification challenge |
 | Carrier authentication | Actual selected-SIM EAP-AKA and AcquireTemporaryToken succeeded | Submit complete genuine JSON under the corrected `joty` string field 2 |
 | Read-only number status | Signed reference query at 14:39 UTC and exported Rust API at 14:47 UTC succeeded with zero records | This lookup cannot create a verified number or restore a challenge |
@@ -82,7 +104,7 @@ Current Messages build 324451063 follows this static chain:
    **`rcs_msisdn_token` header**. `ejuo.a` sets `Content-Type: text/plain` and
    sends padded standard Base64, without line breaks, of the `fzai` protobuf.
 
-This is not the disabled direct-TS43 multipart route. Do not put the carrier's
+This is separate from the direct-TS43 multipart route. Do not put the carrier's
 temporary token in `rcs_msisdn_token`. The normal UPI metadata query is assembled
 by `ekcb.f`; it does not automatically add the direct route's empty `token` or
 `SMS_port` query parameters.

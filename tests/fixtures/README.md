@@ -5,6 +5,12 @@ numbers documented in `docs/research/gapps-bootstrap.md`.
 manufacturer `Example`, application `org.example.sms`, version `1`, Android ID
 zero and no subscriber identifiers. It is a golden request fixture.
 
+`request-with-gms.bin` uses that same independently encoded request plus the
+installed-package entry `com.google.android.gms`, synthetic version `253000000`,
+in Parameters repeated field6. It catches dropping the GMS context while
+retaining the calling app's package/version. No installed version is invented
+when the host does not supply one.
+
 `onboarding.bin` has ACS host `rcs.example.test`, enabled state `1`, ignored
 IMEI/IMSI formats (`4`), a 3600-second validity, and unknown fields in both the
 onboarding flags and outer response. Other fixtures exercise disabled, missing,

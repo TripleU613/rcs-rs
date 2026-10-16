@@ -1,5 +1,5 @@
 //! One explicit live request:
-//! cargo run --example discover -- MCC MNC DEVICE MANUFACTURER PACKAGE_VERSION
+//! cargo run --example discover -- MCC MNC DEVICE MANUFACTURER PACKAGE_VERSION [GMS_VERSION]
 //! Credentials: RCS_APP_PACKAGE, RCS_APP_CERT_SHA1, and RCS_API_KEY_FILE or RCS_API_KEY.
 //! Keep application keys outside the repository. No subscriber identifiers are accepted.
 
@@ -33,10 +33,10 @@ fn required_env(name: &str) -> Result<String, io::Error> {
 
 async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().skip(1).collect();
-    if args.len() != 5 {
+    if !(5..=6).contains(&args.len()) {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "usage: discover MCC MNC DEVICE MANUFACTURER PACKAGE_VERSION",
+            "usage: discover MCC MNC DEVICE MANUFACTURER PACKAGE_VERSION [GMS_VERSION]",
         )
         .into());
     }
@@ -55,12 +55,18 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let version = args[4]
         .parse()
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid package version"))?;
-    let probe = Probe::new(
+    let mut probe = Probe::new(
         Carrier::new(&args[0], &args[1])?,
         &args[2],
         &args[3],
         version,
     )?;
+    if let Some(value) = args.get(5) {
+        let version = value
+            .parse()
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid GMS version"))?;
+        probe = probe.with_gms_version(version)?;
+    }
     let discovery = rcs_rs::discover(&metadata, &probe).await?;
     println!("RCS enabled state: {}", discovery.flags.rcs_enabled_state);
     println!(

@@ -53,7 +53,7 @@ reliable app integration are additional acceptance gates.
 
 As of 2026-10-16:
 
-- Rust discovery, initial ACS challenge handling and consumer consent lookup work against the live services. Initial Sync and unsigned TS43 Proceed are implemented with synthetic wire/transport checks. A live Rust Sync still returns a throttled verification record; there is no admitted session or messaging engine.
+- Rust discovery, initial ACS challenge handling and consumer consent lookup work against the live services. Initial Sync and unsigned TS43 Proceed are implemented with synthetic wire/transport checks. UPI Sync remains throttled, but a controlled discovery comparison found that including the actual installed GMS version enables a separate direct TS43 route. That corrected route reaches ACS with genuine carrier authentication and proof, but still receives invalid version-0 configuration; there is no admitted session or messaging engine.
 - Current Messages build 324451063 and original GMS 26.37.37 are now the main bootstrap references. The 2022 APK is historical evidence only. [Recovered behavior](../../research/gapps-bootstrap.md) records real SIM authentication, carrier temporary tokens, the corrected Proceed field tag and unresolved admission.
 - Google documents interconnection between carrier RCS systems through Jibe Hub [1]. That makes a carrier route a credible approach; it does not prove Tello admits this client.
 - Android's single-registration APIs require privileged installation and the default SMS role. Capability exchange and restricted network access also have permission constraints [2]. A normal SMS role grant is insufficient for that route.

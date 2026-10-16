@@ -13,6 +13,9 @@ identity/proof inputs. Independent probes completed real SIM authentication and
 obtained a carrier temporary token. ACS currently returns an invalid configuration
 without subscriber credentials; the Rust number-verification RPC also reaches
 Google, whose verification record remains throttled.
+Discovery now includes an optional actual installed GMS version. A controlled
+comparison found that omitting it hid the direct carrier-authentication route;
+the corrected Rust request receives direct TS43 support and a carrier endpoint.
 Signed read-only number lookup succeeds with the client's owned credentials,
 but currently returns no verified-number records.
 Registration and Google Messages interoperability remain unverified.
@@ -46,12 +49,16 @@ Set `RCS_APP_PACKAGE`, `RCS_APP_CERT_SHA1` and `RCS_API_KEY_FILE` (a private
 plaintext file), then run:
 
 ```sh
-cargo run --example discover -- MCC MNC DEVICE MANUFACTURER PACKAGE_VERSION
+cargo run --example discover -- MCC MNC DEVICE MANUFACTURER PACKAGE_VERSION [GMS_VERSION]
 ```
 
 The probe sends MCC/MNC and device/application metadata, with GSF Android ID
 zero. It accepts no phone number, IMSI or IMEI. Backend admission may restrict
-the application credentials. Output contains configuration flags and the ACS
+the application credentials. `DEVICE` is Android's `Build.DEVICE`, not its model
+name. Supply the actual installed Play Services or compatible implementation's
+version with `Probe::with_gms_version` or the final CLI argument when present;
+the minimal request without it can receive different provisioning routes.
+Output contains configuration flags and the ACS
 host, without response tokens.
 
 The separate initial ACS probe takes an HTTPS endpoint and client metadata:

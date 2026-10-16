@@ -88,9 +88,20 @@ pub struct Probe {
     device: String,
     manufacturer: String,
     package_version: i64,
+    gms_version: Option<i64>,
 }
 
 impl Probe {
+    /// Include the actual installed Play Services (or compatible implementation) version.
+    /// Omitting this package can select different provisioning routes at discovery.
+    pub fn with_gms_version(mut self, version: i64) -> Result<Self, Error> {
+        if version <= 0 {
+            return Err(Error::InvalidInput("GMS version"));
+        }
+        self.gms_version = Some(version);
+        Ok(self)
+    }
+
     pub fn new(
         carrier: Carrier,
         device: &str,
@@ -114,6 +125,7 @@ impl Probe {
             device: device.into(),
             manufacturer: manufacturer.into(),
             package_version,
+            gms_version: None,
         })
     }
 }
@@ -124,6 +136,20 @@ fn make_request(
     uuid: &str,
 ) -> tonic::Request<wire::GetConfigurationRequest> {
     // shortcut: MCC/MNC only; add opt-in carrier fields when a verified carrier needs them.
+    let mut packages = vec![wire::PackageVersion {
+        package_name: metadata
+            .package
+            .to_str()
+            .expect("validated ASCII package")
+            .into(),
+        version_code: probe.package_version,
+    }];
+    if let Some(version_code) = probe.gms_version {
+        packages.push(wire::PackageVersion {
+            package_name: "com.google.android.gms".into(),
+            version_code,
+        });
+    }
     let message = wire::GetConfigurationRequest {
         context: Some(wire::RequestContext {
             request_uuid: uuid.into(),
@@ -141,14 +167,7 @@ fn make_request(
                 mcc: probe.carrier.mcc.clone(),
                 mnc: probe.carrier.mnc.clone(),
             }),
-            packages: vec![wire::PackageVersion {
-                package_name: metadata
-                    .package
-                    .to_str()
-                    .expect("validated ASCII package")
-                    .into(),
-                version_code: probe.package_version,
-            }],
+            packages,
         }],
     };
     let mut request = tonic::Request::new(message);
@@ -331,6 +350,29 @@ mod tests {
                 .is_sensitive()
         );
         assert!(!format!("{request:?}").contains("synthetic-secret"));
+    }
+
+    #[test]
+    fn installed_gms_version_reaches_discovery_in_addition_to_the_calling_app() {
+        let metadata = ClientMetadata::new("synthetic-secret", "org.example.sms", CERT).unwrap();
+        let probe = Probe::new(Carrier::new("001", "01").unwrap(), "generic", "Example", 1)
+            .unwrap()
+            .with_gms_version(253_000_000)
+            .unwrap();
+        let request = make_request(&metadata, &probe, "00000000-0000-4000-8000-000000000000");
+        assert_eq!(
+            request.get_ref().encode_to_vec(),
+            include_bytes!("../tests/fixtures/request-with-gms.bin")
+        );
+    }
+
+    #[test]
+    fn missing_or_invalid_gms_version_is_never_invented() {
+        for version in [0, -1] {
+            let probe =
+                Probe::new(Carrier::new("001", "01").unwrap(), "generic", "Example", 1).unwrap();
+            assert!(probe.with_gms_version(version).is_err());
+        }
     }
 
     #[test]

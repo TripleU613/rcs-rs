@@ -60,7 +60,8 @@ that case and adds `X-Android-Package` and `X-Android-Cert`. Certificate selecti
 uses the first entry in signing-certificate history, which differs from the
 current signer for this artifact. No API key belongs in the source repository.
 
-For the tested MCC/MNC, the actual response selected:
+For the initial minimal MCC/MNC request, which omitted the installed GMS package,
+the actual response selected:
 
 | Field | Observed value |
 | --- | --- |
@@ -70,7 +71,7 @@ For the tested MCC/MNC, the actual response selected:
 | RCS profile/version | `UP_T` / `5.1B` |
 | IMEI/IMSI format | Ignored (raw enum 4) |
 | DroidGuard with HTTP GET | true |
-| UPI enabled state | Enabled (raw enum 1) |
+| UPI enabled state | Disabled (raw enum 1); corrected against `gefi`/`ddml` |
 | Direct TS43 provisioning supported | false (field 55); no ECS URL in field 56 |
 
 Raw PII enum values must not be confused with the old client's internal format
@@ -79,6 +80,29 @@ integers. In the current artifact, `geef.c(4)` maps to enum representation 6,
 representation to sending full identifiers. The enum label alone establishes
 neither omission nor a server requirement for full identifiers.
 
+**Routing correction from a controlled comparison:** the original minimal
+discovery request was insufficient to rule out other routes. Current Messages
+`elml.a` sends both its own package/version and the installed GMS package/version.
+One five-condition discovery RPC held GSF ID zero and the device/app metadata
+constant. Adding GID1, the genuine first eight IMSI digits and Android carrier ID
+did not change the route. Adding installed GMS version **252432034** to that
+carrier context changed UPI to raw **3** and direct TS43 to **true**, supplying
+the carrier ECS URL and entitlement version 12.0.
+
+A second single RPC isolated only the package entry: minimal versus identical
+minimal-plus-GMS requests returned the same difference. The exported Rust CLI,
+after `Probe::with_gms_version` was added, independently obtained UPI raw 3 and
+direct TS43 support. Thus the GMS entry causes the observed routing difference
+in these requests; this is not evidence of subscriber admission. Private captures
+are in `runtime/route-audit-20261016/` and `runtime/route-audit-gms-isolation/`.
+GSF was held zero, not substituted with microG's checkin ID: a read-only provider
+query returned no Android ID. This is not complete native-request parity.
+
+UPI's enum differs from the RCS-enabled enum. `gefi.a` maps raw 1 to internal 3,
+which `ddml` names DISABLED; raw 3 maps to ENABLED_WITHOUT_ACS_FALLBACK. Earlier
+text treating UPI raw 1 as enabled was incorrect. The direct-TS43 route remains
+separate from UPI's inner TS43 verification method.
+
 Response shape: field 1 repeats configurations; each configuration has its
 correlation ID in field 1, validity duration in field 2 and onboarding flags in
 oneof field 3. Onboarding ACS is oneof field 2 (direct hostname) or field 3
@@ -86,6 +110,10 @@ oneof field 3. Onboarding ACS is oneof field 2 (direct hostname) or field 3
 schema; they must not be mislabelled or treated as a decode failure.
 
 ## 2. Google ACS issues an actual challenge
+
+This probe explicitly requested `client_authenticity_support=goog-droidguard`.
+Current `ejts` uses that challenge for direct TS43; it does not establish that
+the normal legacy IMSI/MSISDN/OTP route always begins with this XML challenge.
 
 **Observed live:** a separate HTTPS GET to the discovered ACS with terminal and
 client metadata and `client_authenticity_support=goog-droidguard` returned:
@@ -109,7 +137,8 @@ provisioning. An HTTP 200 body of this type is not a WAP provisioning document.
 Static code agrees: `ejts.j` requests this method, `ejzs` parses the nonce and
 method data, and `ejts.i` stores them for subsequent states. Newer request
 attestation paths also advertise `goog-mls-upi` and
-`goog-mls-config-refresh` (`ejvn.k`); those were not exercised live.
+`goog-mls-config-refresh` (`ejvn.k`). A later initial UPI challenge GET was
+exercised live; credential-bearing UPI provisioning remains untested.
 
 ## 3. The old carrier error is a local bootstrap failure
 
@@ -417,9 +446,10 @@ A controlled same-subscriber/IID Rust retry at **08:08 UTC** followed more than
 THROTTLED (1), record code 8, with no credential or pending challenge. The job
 stopped before carrier authentication or Proceed and completed its temporary
 debug cleanup. The captured response was decoded offline with the same result.
-There is no accepted subscriber configuration or RCS service session. Further
-work on actual registration/delivery requires the provider to admit verification;
-request builders and a self-hosted server cannot supply that missing credential.
+There is no accepted subscriber configuration or RCS service session. UPI
+registration depends on the missing verified-number credential. The later
+discovery correction in section 9 establishes a separate carrier-to-ACS route;
+its admission failure must be investigated independently of the UPI quota.
 
 After the user resumed work, a single same-identity Rust Sync at **14:30 UTC**,
 more than six hours after the previous attempt, again returned NONE (1),
@@ -486,13 +516,81 @@ invalid configuration. Adding the participant proof did not resolve the remainin
 tested request. The response contains no explicit
 attestation verdict.
 
-Routing is a separate constraint: the actual discovery response enables UPI
-but explicitly disables **direct ACS TS43** and supplies no direct entitlement
-server URL. That flag does not disable TS43 as an inner Constellation verification
-method: the live Sync response selected exactly that method. The direct ACS
-experiment does not establish a supported alternative to the configured UPI
-flow. Further direct ACS requests were stopped; number verification remains
-the selected path and is currently throttled.
+The earlier conclusion that discovery disabled this route was based on an
+incomplete request. Section 1 records the controlled comparison: adding the
+actual installed GMS package/version enables direct TS43 and supplies its
+entitlement endpoint. A separate type-3 policy lookup returns
+`upi-carrier-tos-ts43` for that profile; the minimal profile instead receives
+`upi-mo-strict-policy-mt-priority`. The selected policy is copied verbatim to
+`supported_provisioning_types`.
+
+**Newest direct test:** attempt05 used the newly advertised endpoint, realm
+`nai.epc`, entitlement version `12.0`, fresh real EAP-AKA and an `ap2014`
+AcquireTemporaryToken operation. Its ACS exchange included the selected policy,
+genuine challenge-bound version-2 platform proof and a fresh owned participant
+key/signature. ACS again returned HTTP 200, 453 bytes, version 0, validity 86400,
+unspecified invalid-config reason and no APPLICATION credentials. This does not
+identify which admission check failed. It establishes that the UPI verification
+quota is not the only route worth investigating.
+
+Original Messages `ejvj.h` selects direct TS43 before UPI only when discovery
+enables it and local GMS availability at version 254500000 succeeds. The
+installed compatible implementation is below that local threshold. The host
+probe uses the independently working AOSP SIM adapter; it does not claim that
+normal Messages passed this SDK check. The genuine DroidGuard platform helper
+also remains a laboratory dependency, not proof that an arbitrary SMS app is
+admitted.
+
+Private evidence: `runtime/route-audit-{20261016,gms-isolation,policy}/` and
+`constellation-static/acs-ts43-attempt05/`. Earlier negative direct tests alone
+cannot rule out this newly confirmed route.
+
+**Cellular comparison:** the same source-backed direct flow was then executed
+through Android's validated cellular INTERNET network for the selected SIM,
+using `Network.openConnection` with normal HTTPS certificate verification.
+It reused the still-valid carrier token and generated a fresh ACS challenge,
+session, genuine proof and owned participant key. The POST again returned HTTP
+200, 453 bytes, version 0, validity 86400 and the same unspecified invalid reason,
+with zero APPLICATION entries. Thus this network-path change did not resolve
+the tested direct request. Fresh challenges/proofs and the phone HTTP stack
+also changed, so this is not a byte-identical IP-only experiment. No UPI
+verification RPC or identity reset was performed. Private evidence:
+`constellation-static/acs-ts43-cellular-attempt01/`.
+
+## 10. Legacy IMSI activation comparison
+
+The separately returned minimal profile has UPI disabled, direct TS43 disabled,
+skip-header-enrichment true and proactive DroidGuard GET enabled. `ejvj.h`
+therefore selects the normal legacy IMSI route for that profile. The policy
+name `upi-mo-strict-policy-mt-priority` is still sent verbatim; no client-side
+policy-name veto was found. This profile is not equivalent to the installed-GMS
+profile, whose raw-3 UPI mode has no legacy fallback.
+
+`ejvs.c -> ejuz.h -> ekcb.e/f` sends an ACS-base GET with actual formatted IMSI,
+IMEI and GID1, metadata, empty `token` and configured `SMS_port`. There is no
+`client_authenticity_support`, carrier token, multipart body or `/provision`.
+The proactive proof is sent in `Droid-Guard` and `Droid-Guard-Salt` headers.
+Its version-1 map has plain `APP_NAME`, salted SHA-384 IMSI and logical session;
+the legacy builder does not assign IMEI to this map despite its query presence.
+Cookie and GMS-IID bindings are added only when populated. Initial empty Cookie
+and show-Google-TOS false require neither binding. No preliminary nonce fetch is
+required by this source path.
+
+**Observed:** selected-SIM cellular requests timed out with no captured HTTP
+response at local read limits of 15 and 45 seconds. These were shorter than the
+recovered reference timeout of 60 seconds (`ekah`, applied by `ejvb.a`); they do
+not establish rejection or that the server did not process the requests. A
+controlled host request reused the same logical session, salt and genuine
+platform result, used the reference 60-second read limit and returned HTTP 200
+with a 453-byte WAP document: version 0, validity 86400, unspecified invalid
+reason, zero APPLICATION entries. No OTP challenge was recovered. No UPI
+verification RPC or SMS send was performed by these probe scripts.
+
+Thus the tested legacy request also failed to obtain subscriber configuration.
+Neither this result nor the direct-route response identifies whether client
+metadata, proof admission, subscription eligibility or another server check
+caused the invalid configuration. Private evidence:
+`constellation-static/acs-legacy-cellular-attempt01/`.
 
 ## Next executable work
 
@@ -503,8 +601,11 @@ the selected path and is currently throttled.
    `id_token` parameter through `/provision`, version-1 attestation binding and
    the two distinct session IDs. Rust exposes that optional private parameter
    without validating its claims or treating presence as verification.
-3. Respect verification backoff, then diagnose `Proceed` using a fresh challenge
-   and genuine carrier response without inspection delays.
+3. Diagnose the advertised direct carrier route and the source-backed legacy
+   ACS path using request/proof parity and subscriber eligibility evidence.
+   The cellular direct-route comparison did not resolve the invalid config;
+   legacy cellular timeouts remain inconclusive. Keep UPI's verification throttle
+   separate; there is no automatic retry loop or scheduled verification request.
 4. Obtain authorized provisioning, then registration and the first two-way
    Google Messages RCS exchange. Those goals are still open.
 
