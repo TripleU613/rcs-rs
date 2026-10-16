@@ -61,8 +61,8 @@ pub struct PackageVersion {
 pub struct GetConfigurationResponse {
     #[prost(message, repeated, tag = "1")]
     pub configurations: Vec<Configuration>,
-    #[prost(int32, repeated, tag = "2")]
-    pub experiment_ids: Vec<i32>,
+    #[prost(uint32, repeated, tag = "2")]
+    pub experiment_ids: Vec<u32>,
 }
 
 #[derive(Clone, PartialEq, prost::Message)]

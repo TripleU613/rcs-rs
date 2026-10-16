@@ -415,6 +415,15 @@ mod tests {
     }
 
     #[test]
+    fn experiment_ids_use_unsigned_packed_wire_encoding() {
+        // Independent encoding: response field 2, packed uint32::MAX in five bytes.
+        let bytes = [0x12, 0x05, 0xff, 0xff, 0xff, 0xff, 0x0f];
+        let response = wire::GetConfigurationResponse::decode(bytes.as_slice()).unwrap();
+        assert_eq!(response.encode_to_vec(), bytes);
+        assert_eq!(response.experiment_ids[0] as u64, u32::MAX as u64);
+    }
+
+    #[test]
     fn rejects_missing_device_and_invalid_package_versions() {
         for (device, manufacturer, version) in [
             ("", "Example", 1),

@@ -22,8 +22,8 @@ struct FixtureService {
 struct FutureServerResponse {
     #[prost(message, repeated, tag = "1")]
     configurations: Vec<wire::Configuration>,
-    #[prost(int32, repeated, tag = "2")]
-    experiment_ids: Vec<i32>,
+    #[prost(uint32, repeated, tag = "2")]
+    experiment_ids: Vec<u32>,
     #[prost(uint32, tag = "99")]
     future_server_field: u32,
 }

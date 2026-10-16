@@ -110,6 +110,8 @@ correlation ID in field 1, validity duration in field 2 and onboarding flags in
 oneof field 3. Onboarding ACS is oneof field 2 (direct hostname) or field 3
 (MCC URL format). The server also returned fields absent from this client
 schema; they must not be mislabelled or treated as a decode failure.
+Response-root field 2 contains packed repeated **uint32** experiment IDs;
+section 13 records their consumer and the correction from the earlier int32 type.
 
 ## 2. Google ACS issues an actual challenge
 
@@ -703,12 +705,24 @@ in LastCheckinInfo but fills GServices rows separately from response.setting
 entries. Source alone did not prove those IDs were equal.
 
 Two controlled discovery requests used the actual Messages value versus zero,
-holding device/carrier/package inputs constant. Both succeeded, with identical
-onboarding payloads including unknown fields and identical policy bytes; only
-configuration cache validity differed. No verification or ACS request was made
-by this comparison. This closes a client-context gap without explaining the
-present admission failure. `Probe::with_gsf_android_id` now permits that actual
-signed value; callers that omit it retain zero and the original request bytes.
+holding device/carrier/package inputs constant. Both succeeded: individual
+configuration messages were byte-identical after excluding cache validity,
+including unknown onboarding fields and policy bytes. The response-root
+experiment IDs **also differed**, so the whole responses did not differ only
+in validity. No verification or ACS request was made by this comparison.
+
+Generated `gedv` uses descriptor type 43, `UINT32_LIST_PACKED`, for response
+field 2. Whole-APK field references find only two consumers, both in
+`ellm.apply`. Changed IDs go through `ehrb.t -> ehqv` to Phenotype weakRegister
+with namespace `__internal.external_ids#MOBILE_CONFIGURATION_NAME_SPACE` and
+the Android Messaging or Carrier Services log source. No direct ACS header,
+query or route-state consumer was found. Indirect experiment-service effects
+are not excluded. Rust's wire type is corrected to packed uint32; a synthetic
+maximum-value round-trip test exposed the old signed type's ten-byte reencoding.
+
+This closes a client-context gap without explaining the present admission
+failure. `Probe::with_gsf_android_id` now permits that actual signed value;
+callers that omit it retain zero and the original request bytes.
 Private evidence: `runtime/gsf-messages-audit-20261016/`,
 `runtime/route-audit-native-gsf/` and `runtime/route-audit-gsf-zero-control/`.
 

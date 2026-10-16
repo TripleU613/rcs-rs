@@ -24,8 +24,10 @@ It cannot be inferred from the UPI enum. Both comparisons held GSF ID at zero, s
 effect of package context, not complete native-client parity.
 The actual Messages-context GServices ID was subsequently recovered without
 changing identity. Using it versus zero returned identical onboarding payloads
-and policy, with only cache validity differing; Rust now accepts the actual ID
-through `Probe::with_gsf_android_id`.
+and policy, with differing cache validity and root experiment-assignment IDs.
+The traced experiment-ID consumer registers them with Phenotype, without a
+direct ACS consumer. Rust now accepts the actual ID through
+`Probe::with_gsf_android_id`.
 
 The original Messages route selector checks direct TS43 before UPI, but also
 requires local GMS availability at version 254500000. The installed microG
