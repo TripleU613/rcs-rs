@@ -148,9 +148,14 @@ Upstream warnings remain; no clean lint or complete security audit is claimed.
 
 Patch application is tested from clean pinned checkouts, including the binary
 DER fixture. Upstream source is not bulk-vendored or wired into the root crate.
-Android callback linkage, platform DNS/IMS access, SIM authorization, live TLS,
-valid carrier configuration, SIP registration and RCS delivery remain unverified.
-The ordinary-app permission investigation is also still open: after a physical
-reconnect/new cable, USB enumeration worked but ADB system-file reads continued
-to fail. No installed telephony bytecode or active ICC-permission flag was
-established by those failed transfers.
+Upstream Android callback linkage, live TLS, valid carrier configuration, SIP
+registration and RCS delivery remain unverified. USB system-file reads failed,
+but subsequent wireless pairing delivered valid installed telephony, connectivity
+and permission-controller artifacts. The separate [ordinary-client platform
+audit](ordinary-client.md#installed-platform-audit-and-ims-transport--2026-10-16)
+records their exact permission branches and live network observations. Active
+IMS requests were denied, passive observation/socket marking succeeded, and the
+IMS-bound proxy send failed with ENETUNREACH. Default DNS returned only IPv4 and
+observed IMS base-link addresses were IPv6; translation/native routing/policy
+remain uninspected, so the underlying cause is unresolved.
+That probe does not supply working upstream network callbacks or SIM authority.

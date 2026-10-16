@@ -251,15 +251,25 @@ registration APIs. A normal SMS role is therefore insufficient, and enabling a
 test override would not establish real vendor support. See the
 [AOSP single-registration requirements](https://source.android.com/docs/core/connect/ims-single-registration).
 
-SIM authentication also has a platform permission boundary. Android 17 source
-introduces feature-flagged `USE_ICC_AUTH` (`signature|privileged`) alongside
-carrier-privilege and `USE_ICC_AUTH_WITH_DEVICE_IDENTIFIER` access. Its new API
-documentation retires `READ_PRIVILEGED_PHONE_STATE` for this operation. Both ICC
-permission names exist on the installed build, but this inventory does not
-establish its active flag/enforcement path. The successful laboratory exchange
-used the privileged Phone process through temporary root instrumentation; it
-does not prove an ordinary app can perform that operation. Host integration must
-check actual access and return an explicit failure when unavailable.
+SIM authentication also has a platform permission boundary. The subsequent
+[installed-code and ordinary-UID audit](ordinary-client.md#installed-platform-audit-and-ims-transport--2026-10-16)
+establishes that this build checks the ICC-specific app-op, then `USE_ICC_AUTH`
+or selected-sub carrier privilege, then `READ_PRIVILEGED_PHONE_STATE` or carrier
+privilege. Its method has no feature-flag conditional and retains the last
+fallback despite the newer API documentation. The installed SMS role's identifier
+app-op is not an ICC grant; its extra single-registration permissions are granted
+only to system packages. Actual SMS-role enrollment remains untested.
+
+The ordinary APK satisfied no ICC branch. Active restricted IMS requests threw
+`SecurityException`, while passive observation and unused socket binding worked.
+Default DNS returned only IPv4 for the carrier proxy; observed IMS base-link
+addresses were IPv6 and the IMS-bound send failed with `ENETUNREACH`. Stacked
+links, translation and native routing/policy were not inspected, so these facts
+do not isolate the cause. No SIP response or ordinary-app AKA result was obtained.
+The earlier successful SIM-auth laboratory exchange used the
+privileged Phone process through temporary root instrumentation; it does not
+prove an ordinary app can perform that operation. Host integration must check
+actual access and return an explicit failure when unavailable.
 Sources: Android 17 [TelephonyManager](https://android.googlesource.com/platform/frameworks/base/+/refs/heads/android17-release/telephony/java/android/telephony/TelephonyManager.java)
 and [permission definitions](https://android.googlesource.com/platform/frameworks/base/+/refs/heads/android17-release/core/res/AndroidManifest.xml).
 

@@ -153,7 +153,7 @@ cargo test --manifest-path private/upstream/rust-rcs-client/Cargo.toml --lib
 **Produces:** One selected route, its authentication/network requirements, and redacted evidence; or an exact blocker.
 
 - [ ] Verify B has current Google Messages with RCS connected. Record its actual app version, provider indication and encryption state. Do not treat the 2022 APK as a current reference.
-- [ ] Inventory A's carrier configuration, single-registration feature, available SIP delegate service and permission grants. Separate ordinary-app access from privileged/root-assisted laboratory access.
+- [x] Inventory A's carrier configuration, single-registration feature, available SIP delegate service and permission grants. See `docs/research/provider-access.md` and `docs/research/ordinary-client.md`: installed ICC/SMS-role branches and ordinary-UID active/passive IMS observations are recorded; valid configuration, admission and registration remain open.
 - [ ] Trace current reference provisioning on the test subscription: ACS discovery, identifiers required, client metadata, HTTP state/cookies, verification challenge, cellular routing and final service configuration. Keep captures private; record sanitized field names and transitions.
 - [ ] Where Google-specific bootstrap is present, inspect that path separately. Determine whether the service uses an app assertion, attestation, token exchange or proprietary transport. Test these hypotheses; do not infer them from the current missing URL or the unrelated integrity checker result.
 - [ ] Implement only the smallest independent probe for the observed flow. Use our client's own session and number verification. Do not reuse Google Messages' private bearer tokens as a shortcut to a claimed success.

@@ -21,8 +21,9 @@ SIM EAP-AKA has a separate gate. The SMS role does not grant
 `USE_ICC_AUTH_WITH_DEVICE_IDENTIFIER` (`signature|appop`) or the newer
 `USE_ICC_AUTH` (`signature|privileged`). Carrier privilege is another admission
 path. Current API documentation retires `READ_PRIVILEGED_PHONE_STATE` for this
-operation; the installed build's active enforcement branch remains unverified.
-An ordinary app cannot infer SIM-auth access from its identifier access.
+operation, but the installed build retains that fallback. The installed-code
+audit below establishes its actual branch. An ordinary app cannot infer SIM-auth
+access from its identifier access.
 Sources: [getIccAuthentication](https://developer.android.com/reference/android/telephony/TelephonyManager#getIccAuthentication(int,int,java.lang.String))
 and [Android 17 permission definitions](https://android.googlesource.com/platform/frameworks/base/+/refs/heads/android17-release/core/res/AndroidManifest.xml).
 
@@ -30,7 +31,9 @@ An unrestricted cellular Internet request can use public `requestNetwork` and
 `TelephonyNetworkSpecifier(subId)` with normal network permissions. Availability
 still depends on device, subscription and data policy; this does not authorize a
 restricted IMS network or guarantee secondary-SIM connectivity. Bind connections
-and DNS to the returned network and release the callback.
+and DNS to the returned network and release the callback. The public
+`TelephonyNetworkSpecifier.Builder` used by the private IMS probe requires API30;
+the network-free public capability probe remains API29.
 Sources: [ConnectivityManager](https://developer.android.com/reference/android/net/ConnectivityManager#requestNetwork(android.net.NetworkRequest,android.net.ConnectivityManager.NetworkCallback))
 and [subscription selector](https://developer.android.com/reference/android/net/TelephonyNetworkSpecifier.Builder).
 
@@ -71,6 +74,77 @@ by that public APK after capture. Neither experiment established behavior on a
 GApps-free ROM. The discovery key restriction does not explain the separate ACS
 400 response, which used no Google API key.
 
+## Installed platform audit and IMS transport — 2026-10-16
+
+Wireless ADB pairing to the owned Pixel succeeded after USB system-file transfers
+failed. Installed artifacts were transferred with valid ZIP/Dex contents. The
+following hashes identify the code inspected; this is evidence about this
+Android17/Lineage24 build, not a promise about every Android release or ROM.
+
+| Installed artifact | SHA256 |
+| --- | --- |
+| `telephony-common.jar` | `4ad45c65d832311009721ff9d16cf2419395a09d91e05908b338f8ffda68d820` |
+| `framework.jar` | `9655cce8302732c8033e236c9516e41bc5bea903763dc1e9382cb86244dc32a5` |
+| `service-connectivity.jar` | `d9015de0c30bb033181a8f86adda6159946acaab54b2bb864fa752af8e359c7d` |
+| `PermissionController.apk` | `05c00e77e6eb07ae77e402cf4e29b1df5293ce03773489b926c25151c1dd6a57` |
+
+`PhoneSubInfoController.enforceIccSimChallengeResponsePermission` first tries
+`TelephonyPermissions.checkCallingOrSelfUseIccAuthWithDeviceIdentifier`, then
+`USE_ICC_AUTH` or selected-subscription carrier privilege, then
+`READ_PRIVILEGED_PHONE_STATE` or selected-subscription carrier privilege. The
+ICC-specific app-op accepts ALLOWED/FOREGROUND; DEFAULT requires the actual
+`USE_ICC_AUTH_WITH_DEVICE_IDENTIFIER` permission. The distinct identifier app-op
+is not checked. Enforcement runs before clearing the caller identity and before
+the SIM operation. No authentication challenge was sent to establish these gates.
+
+The installed ICC method has no `newSimAuthPermission` conditional. The relocated
+flag getters return literal true, but that does not remove this build's visible
+privileged-phone fallback. API documentation alone would have described this
+installed implementation incorrectly.
+
+The installed SMS role resource grants `read_device_identifiers`; it grants none
+of those ICC permissions or the ICC-specific app-op. `SmsRoleBehavior.grantAsUser`
+adds `PERFORM_IMS_SINGLE_REGISTRATION` and
+`ACCESS_RCS_USER_CAPABILITY_EXCHANGE` only for system packages on AndroidS+.
+Ordinary SMS-role enrollment was not performed; these are installed resource/code
+findings, not observed post-enrollment grants. They provide no basis for assuming
+that making an ordinary APK the default SMS app unlocks SIM AKA or SIP delegation.
+
+`ConnectivityService.enforceNetworkRequestPermissions` rejects an active
+restricted IMS request without the restricted-network authorization. Its carrier
+exceptions cover CBS or eligible Wi-Fi requests, not this pure cellular IMS
+request. Passive callbacks and `Network.bindSocket` have separate paths; the
+active-request rejection cannot establish their outcome.
+
+| Own ordinary-UID experiment | Observed result | Limit |
+| --- | --- | --- |
+| ICC preflight, selected default-data subscription | All three ICC-relevant permissions absent; no carrier privilege; ICC app-op DEFAULT; identifier app-op DENY | No installed ICC admission branch is satisfied. No SIM authentication was invoked. |
+| Active cellular IMS `requestNetwork`, removing `NOT_RESTRICTED` | `SecurityException`, before callback registration | This caller cannot request that bearer. |
+| Passive callback for the same subscription/IMS filter | Existing cellular IMS network observed; neither `INTERNET` nor `NOT_RESTRICTED` | Observation does not create a bearer or authorize authentication. |
+| Unconnected UDP `Network.bindSocket` on that network | Returned successfully | Socket marking alone proves no packet delivery. Native enforcement details were not recovered. |
+| One-shot OPTIONS diagnostic using the profile proxy, IMS-bound DNS | `UnknownHostException` before sending | No SIP send completed in this captured diagnostic. |
+| Explicit default-network DNS comparison, socket still bound to IMS | DNS returned only IPv4; `LinkProperties.getLinkAddresses()` returned only IPv6 base-link addresses; send failed with `SocketException` / `ENETUNREACH` | No successful route was established. Stacked links, address translation and native routing/policy were not inspected; these family observations do not isolate the cause. No provider rejection or socket-permission conclusion follows. |
+
+The OPTIONS diagnostic used forensic routing hints from the original complete
+IMS application subtree, an owned-number guard and a truthful User-Agent. It
+used the [default SIP UDP port 5060](https://www.rfc-editor.org/rfc/rfc3261.html#section-18.2.1),
+at most one send call per explicit diagnostic, a bounded receive timeout,
+no automatic retransmission and no Authorization, REGISTER, MESSAGE or AKA call.
+It did not treat the incomplete document as a validated configuration. The final
+captured send attempts did not complete; no SIP response was obtained. An earlier
+prototype returned an incomplete instrumentation result without a send-state
+record, so its send outcome is unknown.
+
+Private inputs and captures remain outside Git under
+`runtime/platform-auth-audit-20261016/`: `ims-network-summary.json`,
+`ims-sip-ims-dns-summary.json`, `ims-sip-summary.json`, and the focused reports in
+`static/carrier-static/`, `static/roles/` and `static/rcs_runtime/`. After the
+diagnostics, the original nondebug capability APK's exact hash was restored,
+private input was removed, callbacks were released, and the SMS holder and
+identifier app-op mode were unchanged. Wireless debugging/pairing remains enabled
+for ongoing research. These observations are from the rooted custom-ROM/microG
+test phone using an ordinary app UID; clean vanilla behavior remains untested.
+
 ## Standards route and remaining capabilities
 
 [RCC.14 v10 §§2.2.1 and 2.5.2](https://www.gsma.com/newsroom/wp-content/uploads/RCC.14-v10.0-1.pdf)
@@ -102,7 +176,8 @@ must be kept by path. Values remain private. In [RCC.07 v3 Table 110](https://ww
 the SIP `UserPwd` definition applies to Digest; this profile selects AKA. Its
 separate XCAP authentication selects GBA. Nonempty fields do not establish an
 alternate SIP authentication method. The repaired forensic copy was not used as
-a runtime configuration.
+a runtime configuration. The later OPTIONS diagnostics used only the original
+closed application subtree's routing fields and did not authenticate or register.
 
 ## Request syntax and authenticity
 
@@ -138,5 +213,8 @@ unchanged. These APIs do not establish accepted configuration or registration.
 API 29 is the current capability probe's floor, not a global product minimum.
 Next evidence must come from the ordinary app's actual UID and declared
 capabilities, including a separately tested default-SMS role where appropriate.
+This carrier profile still needs a usable IMS route and an authorized SIM-auth
+path; neither is supplied by the current probe. The unresolved routing failure
+must not be papered over with a guessed proxy or a root-only shipping dependency.
 No OTP completion, SIP registration or RCS messaging success has been observed
 in these experiments, and they made no GPNV verification RPC.
