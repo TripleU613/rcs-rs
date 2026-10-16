@@ -1,4 +1,4 @@
-//! Experimental configuration discovery only; no RCS registration or messaging yet.
+//! Experimental RCS bootstrap and verification decoding; no registration or messaging yet.
 
 use bytes::Bytes;
 use prost::Message;
@@ -9,6 +9,7 @@ use tonic::transport::{Channel, ClientTlsConfig, Endpoint};
 
 pub mod acs;
 pub mod consent;
+pub mod verification;
 pub mod wire;
 
 pub struct Discovery {

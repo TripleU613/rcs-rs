@@ -1,0 +1,33 @@
+All verification fixtures use independently encoded synthetic values. They contain
+no real SIM identity, registered IID, usable credentials, device captures, or tokens.
+Schema sources: original GMS 26.37.37 descriptors jowy/joxi/joxf/jowe/joss/jott/jotp/
+jots/jotk/joxc and client bqzr. The custom result status descriptor jcvk confirms
+code field1 and message field3; field2 is retained without assigning a meaning.
+
+- `verification-pending.bin`: exact embedded Verification with state field2=2,
+  challenge field4 -> container field2 -> Challenge.method2=11 and TS43 field12.
+  TS43.context1 is exactly `0807120400ff8000`, including unknown binary contents.
+  URL2 uses carrier.example.test; params3 exercises all 15 known parameter fields.
+  AcquireTemporaryToken5 -> operation1 contains synthetic name/type/targets and
+  an unknown field99. The SIM association contains test IMSI 001010000000001.
+- `verification-sync-pending.bin`: response field1 -> result Verification1 plus
+  custom status2 (explicit code1=0, opaque field2=`generic`, message3 synthetic).
+  Response header3 contains an unknown string field2. No meaning is assigned.
+- `verification-proceed-failed.bin`: Proceed response Verification1 has state2=1,
+  unverified-info field9 with reason1=2 and method3=11. The opaque timestamp-pair
+  field2 contains equal synthetic values; the decoder derives no expiry or delay.
+- `verification-sync-throttled.bin`: state2=1, unverified reason1=1, custom status
+  code1=8 and synthetic recent-attempt text. Outer response decoding succeeds while
+  the per-record failure remains visible.
+
+Challenge-container fields3/4 are unknown and are **not** interpreted as TTL or flags.
+No Sync/Proceed request is encoded or sent. No returned state/token is validated as
+proof that a phone number is verified.
+
+Decoder limits are 256 KiB per response, 64 result records/operation targets,
+16 KiB per text/context value, and 8 KiB for the HTTPS carrier URL. Singular known
+fields and conflicting known oneof payloads reject duplicates. Across Sync records,
+duplicate verification/association detection compares exact bytes only; it cannot
+normalize reordered protobuf fields or establish semantic identity of unknown data.
+Unknown fields are retained in full original response/Verification/status/operation
+bytes, rather than being reconstructed from the typed subset.

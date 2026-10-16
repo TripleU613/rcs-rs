@@ -1,0 +1,261 @@
+use super::*;
+
+#[test]
+fn pending_ts43_keeps_exact_verification_context_and_per_record_status() {
+    let bytes = Bytes::from_static(include_bytes!(
+        "../../tests/fixtures/verification-sync-pending.bin"
+    ));
+    let response = SyncResponse::decode(bytes.clone()).ok().unwrap();
+    assert_eq!(response.raw_protobuf(), bytes);
+    assert_eq!(response.results.len(), 1);
+    let result = &response.results[0];
+    let verification = result.verification.as_ref().unwrap();
+    assert_eq!(verification.state, Some(2));
+    assert_eq!(verification.method, Some(11));
+    assert_eq!(verification.unverified_reason, None);
+    assert_eq!(
+        verification.raw_protobuf(),
+        include_bytes!("../../tests/fixtures/verification-pending.bin")
+    );
+    let challenge = verification.ts43.as_ref().unwrap();
+    assert_eq!(challenge.private_context(), [8, 7, 18, 4, 0, 255, 128, 0]);
+    assert_eq!(
+        challenge.private_server_url(),
+        "https://carrier.example.test/entitlement?opaque=synthetic-private"
+    );
+    let status = result.status.as_ref().unwrap();
+    assert_eq!(status.code, Some(0));
+    assert_eq!(status.private_message(), Some("synthetic-private-message"));
+    assert!(
+        status
+            .raw_protobuf()
+            .windows(7)
+            .any(|bytes| bytes == b"generic")
+    );
+}
+
+#[test]
+fn proceed_failure_decodes_none_reason_without_treating_outer_success_as_verification() {
+    let response = ProceedResponse::decode(Bytes::from_static(include_bytes!(
+        "../../tests/fixtures/verification-proceed-failed.bin"
+    )))
+    .ok()
+    .unwrap();
+    let verification = response.verification.unwrap();
+    assert_eq!(verification.state, Some(1));
+    assert_eq!(verification.unverified_reason, Some(2));
+    assert_eq!(verification.method, Some(11));
+    assert!(verification.ts43.is_none());
+}
+
+#[test]
+fn throttled_record_status_is_retained_inside_successful_sync_envelope() {
+    let response = SyncResponse::decode(Bytes::from_static(include_bytes!(
+        "../../tests/fixtures/verification-sync-throttled.bin"
+    )))
+    .ok()
+    .unwrap();
+    let result = &response.results[0];
+    assert_eq!(result.verification.as_ref().unwrap().state, Some(1));
+    assert_eq!(
+        result.verification.as_ref().unwrap().unverified_reason,
+        Some(1)
+    );
+    assert_eq!(result.status.as_ref().unwrap().code, Some(8));
+}
+
+#[test]
+fn decodes_operation_and_all_parameter_kinds_with_redacted_default_diagnostics() {
+    let response = SyncResponse::decode(Bytes::from_static(include_bytes!(
+        "../../tests/fixtures/verification-sync-pending.bin"
+    )))
+    .unwrap();
+    let result = &response.results[0];
+    let verification = result.verification.as_ref().unwrap();
+    let challenge = verification.ts43.as_ref().unwrap();
+    assert_eq!(challenge.parameters.configuration_version, Some(1));
+    assert_eq!(challenge.parameters.notification_action, Some(2));
+    for (parameter, expected) in [
+        (StringParameter::EntitlementVersion, "2.0"),
+        (StringParameter::AuthenticationToken, "synthetic-auth"),
+        (StringParameter::TemporaryToken, "synthetic-temporary"),
+        (StringParameter::TerminalId, "<imei>"),
+        (StringParameter::TerminalVendor, "Example"),
+        (StringParameter::TerminalModel, "Generic"),
+        (StringParameter::TerminalSoftwareVersion, "1"),
+        (StringParameter::AppName, "ExampleApp"),
+        (StringParameter::AppVersion, "1.0"),
+        (StringParameter::NotificationToken, "synthetic-notification"),
+        (StringParameter::AcceptContentType, "application/json"),
+        (StringParameter::BoostType, "example-boost"),
+        (StringParameter::Gid1, "synthetic-gid1"),
+    ] {
+        assert_eq!(
+            challenge.parameters.private_string(parameter),
+            Some(expected)
+        );
+    }
+    assert_eq!(challenge.private_application_id(), Some("ap2009"));
+    assert_eq!(challenge.private_nai_realm(), Some("example.realm"));
+    let action = challenge.action.as_ref().unwrap();
+    let Ts43Action::AcquireTemporaryToken(operation) = action else {
+        panic!("expected acquire action");
+    };
+    assert_eq!(operation.private_name(), Some("AcquireTemporaryToken"));
+    assert_eq!(operation.operation_type, Some(4));
+    assert_eq!(operation.private_targets(), ["rcs"]);
+    assert_eq!(operation.private_target_ids(), ["synthetic-target"]);
+    assert!(
+        operation
+            .raw_protobuf()
+            .ends_with(b"synthetic-operation-unknown")
+    );
+    for debug in [
+        format!("{response:?}"),
+        format!("{result:?}"),
+        format!("{verification:?}"),
+        format!("{challenge:?}"),
+        format!("{:?}", challenge.parameters),
+        format!("{action:?}"),
+        format!("{operation:?}"),
+    ] {
+        for secret in [
+            "synthetic-",
+            "001010000000001",
+            "<imei>",
+            "carrier.example.test",
+        ] {
+            assert!(!debug.contains(secret));
+        }
+    }
+}
+
+// Independent test encoding of length-delimited fields; production uses only prost decoding.
+fn field(tag: u8, data: &[u8]) -> Vec<u8> {
+    let mut output = vec![(tag << 3) | 2];
+    let mut length = data.len();
+    while length > 127 {
+        output.push((length as u8 & 127) | 128);
+        length >>= 7;
+    }
+    output.push(length as u8);
+    output.extend(data);
+    output
+}
+
+fn proceed_ts43(ts43: &[u8]) -> Bytes {
+    let mut challenge = vec![16, 11];
+    challenge.extend(field(12, ts43));
+    let container = field(2, &challenge);
+    let mut verification = vec![16, 2];
+    verification.extend(field(4, &container));
+    Bytes::from(field(1, &verification))
+}
+
+fn minimal_ts43(url: &str) -> Vec<u8> {
+    let mut payload = field(1, &[8, 7]);
+    payload.extend(field(2, url.as_bytes()));
+    payload.extend(field(3, &[]));
+    payload
+}
+
+#[test]
+fn preserves_missing_and_unknown_states_and_status_only_results() {
+    let empty = ProceedResponse::decode(Bytes::new()).unwrap();
+    assert!(empty.verification.is_none());
+    for (state, bytes) in [(None, &[10, 0][..]), (Some(91), &[10, 2, 16, 91])] {
+        let verification = ProceedResponse::decode(Bytes::copy_from_slice(bytes))
+            .unwrap()
+            .verification
+            .unwrap();
+        assert_eq!(verification.state, state);
+        assert_eq!(verification.unverified_reason, None);
+    }
+    let response = SyncResponse::decode(Bytes::from_static(&[10, 4, 18, 2, 8, 8])).unwrap();
+    assert!(response.results[0].verification.is_none());
+    assert_eq!(response.results[0].status.as_ref().unwrap().code, Some(8));
+    let response =
+        ProceedResponse::decode(Bytes::from_static(&[10, 8, 16, 1, 74, 4, 8, 91, 24, 93])).unwrap();
+    let verification = response.verification.unwrap();
+    assert_eq!(verification.unverified_reason, Some(91));
+    assert_eq!(verification.method, Some(93));
+}
+
+#[test]
+fn rejects_malformed_oversize_and_ambiguous_records_or_state_payloads() {
+    assert!(SyncResponse::decode(Bytes::from_static(&[10, 255])).is_err());
+    assert!(ProceedResponse::decode(Bytes::from(vec![0; MAX_MESSAGE + 1])).is_err());
+    assert!(SyncResponse::decode(Bytes::from([10, 0].repeat(MAX_RECORDS + 1))).is_err());
+    let mut duplicate =
+        include_bytes!("../../tests/fixtures/verification-sync-pending.bin").to_vec();
+    duplicate.extend(include_bytes!(
+        "../../tests/fixtures/verification-sync-pending.bin"
+    ));
+    assert!(SyncResponse::decode(Bytes::from(duplicate)).is_err());
+    for bytes in [
+        &[10, 4, 16, 1, 16, 2][..],
+        &[10, 2, 16, 1, 10, 2, 16, 2],
+        &[10, 6, 26, 0, 34, 0, 74, 0],
+    ] {
+        assert!(ProceedResponse::decode(Bytes::copy_from_slice(bytes)).is_err());
+    }
+    for url in [
+        "http://carrier.example.test/",
+        "https://user:private@carrier.example.test/",
+        "https://carrier.example.test/#private",
+        "https://carrier.example.test/\nprivate",
+        "invalid",
+    ] {
+        assert!(ProceedResponse::decode(proceed_ts43(&minimal_ts43(url))).is_err());
+    }
+    let mut duplicate_url = minimal_ts43("https://carrier.example.test/");
+    duplicate_url.extend(field(2, b"https://other.example.test/"));
+    assert!(ProceedResponse::decode(proceed_ts43(&duplicate_url)).is_err());
+    let mut ambiguous_action = minimal_ts43("https://carrier.example.test/");
+    ambiguous_action.extend(field(4, &[]));
+    ambiguous_action.extend(field(5, &[]));
+    assert!(ProceedResponse::decode(proceed_ts43(&ambiguous_action)).is_err());
+    let mut bad_context = field(1, &vec![1; 16 * 1024 + 1]);
+    bad_context.extend(field(2, b"https://carrier.example.test/"));
+    bad_context.extend(field(3, &[]));
+    assert!(ProceedResponse::decode(proceed_ts43(&bad_context)).is_err());
+    let mut duplicate_params = field(1, &[8, 7]);
+    duplicate_params.extend(field(2, b"https://carrier.example.test/"));
+    duplicate_params.extend(field(3, &[8, 1, 8, 2]));
+    assert!(ProceedResponse::decode(proceed_ts43(&duplicate_params)).is_err());
+}
+
+#[test]
+fn rejects_packed_wire_encoding_for_singular_integer_fields() {
+    // State2 is a singular int32, not a packed repeated scalar.
+    assert!(ProceedResponse::decode(Bytes::from_static(&[10, 3, 18, 1, 2])).is_err());
+    // Custom Status.code1 is also singular int32.
+    assert!(SyncResponse::decode(Bytes::from_static(&[10, 5, 18, 3, 10, 1, 8])).is_err());
+    // TS43 params.configurationVersion1 must not accept a packed byte string.
+    let mut ts43 = field(1, &[8, 7]);
+    ts43.extend(field(2, b"https://carrier.example.test/"));
+    ts43.extend(field(3, &[10, 1, 1]));
+    assert!(ProceedResponse::decode(proceed_ts43(&ts43)).is_err());
+}
+
+#[test]
+fn unknown_outer_fields_allow_bounded_large_capture_and_status_message_stays_lossless() {
+    // Unknown field2 at the response level is preserved, including a large future extension.
+    let bytes = Bytes::from(field(2, &vec![0; 128 * 1024]));
+    let response = SyncResponse::decode(bytes.clone()).unwrap();
+    assert!(response.results.is_empty());
+    assert_eq!(response.raw_protobuf(), bytes);
+    // Status.message is opaque UTF-8, including newlines. Debug does not reflect it.
+    let mut status = vec![8, 8];
+    status.extend(field(3, b"synthetic-private\nsecond line"));
+    let response = SyncResponse::decode(Bytes::from(field(1, &field(2, &status)))).unwrap();
+    assert_eq!(
+        response.results[0]
+            .status
+            .as_ref()
+            .unwrap()
+            .private_message(),
+        Some("synthetic-private\nsecond line")
+    );
+    assert!(!format!("{:?}", response.results[0]).contains("synthetic-private"));
+}

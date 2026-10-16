@@ -1,7 +1,7 @@
 # GApps RCS bootstrap: recovered behavior
 
 Investigation date: 2026-10-16. Status: bootstrap discovery, ACS challenge,
-consent lookup and an initial verification challenge have been reproduced;
+consent lookup, a verification challenge and carrier SIM authentication have been reproduced;
 subscriber provisioning, registration and message exchange
 remain incomplete. Findings distinguish static code from execution.
 
@@ -73,8 +73,9 @@ For the tested MCC/MNC, the actual response selected:
 
 Raw PII enum values must not be confused with the old client's internal format
 integers. In the current artifact, `geef.c(4)` maps to enum representation 6,
-`PII_FORMAT_IGNORED`. No inference that full identifiers are required follows
-from this response.
+`PII_FORMAT_IGNORED`. The later `ejuz` call chain nevertheless maps this
+representation to sending full identifiers. The enum label alone establishes
+neither omission nor a server requirement for full identifiers.
 
 Response shape: field 1 repeats configurations; each configuration has its
 correlation ID in field 1, validity duration in field 2 and onboarding flags in
@@ -248,8 +249,8 @@ The selected handler is `brxy -> brxd -> wej/weu/wew`: authenticate to the
 provided carrier URL, use the actual SIM's `getIccAuthentication(2,129,...)`
 result for EAP-AKA, then acquire the temporary token. `Proceed` must carry the
 full carrier JSON response, the original verification and the exact opaque
-challenge context, preserving unknown fields. Carrier entitlement and SIM
-authentication have not yet been completed.
+challenge context, preserving unknown fields. The subsequent carrier exchange
+is described below; a selected challenge alone does not establish verification.
 
 No EC-key acknowledgement was present in the response header. The reference
 client leaves the first follow-up unsigned until it receives that acknowledgement.
@@ -291,14 +292,90 @@ It returned a nonempty encoded result, retained privately. This establishes
 local token generation, not ACS validation, subscriber provisioning or RCS
 registration. The normal app flow remains blocked earlier at number verification.
 
+## 8. Real SIM authentication and carrier temporary token
+
+**Observed live:** the selected carrier URL returned an EAP-AKA challenge.
+The installed AOSP entitlement implementation, invoked in the privileged Phone
+process, used the selected SIM's real authentication result and composed the
+EAP response. The combined initial request, SIM operation and cookie-preserving
+relay completed in about six seconds and returned a carrier authentication token.
+SIM secret key material remained in the phone process.
+
+The carrier then accepted `AcquireTemporaryToken` and returned the full JSON
+response containing a temporary token. Its unverified JWT payload identifies the
+selected subscriber and names Google as its audience. Decoding those claims is
+not signature validation or proof that Google accepts the token.
+
+The relay cookie expires after 30 seconds. A manual exchange initially failed
+after that cookie expired; the timed combined exchange succeeded. TLS certificate
+verification remained enabled. The working Linux curl connection negotiated
+TLS 1.2 with `AES256-GCM-SHA384`, a static-RSA cipher unavailable in rustls.
+A failed Python connection does not establish a TLS-version-only problem.
+An Android platform transport is therefore relevant to this carrier integration.
+
+**Observed live:** `Proceed` accepted the reconstructed RPC envelope with outer
+gRPC status 0, but returned verification state `NONE` and reason `FAILED` (2).
+It received the original verification, the unchanged opaque context, the full
+carrier JSON and a valid cached DroidGuard token. The carrier token was still
+within its declared validity window. The older challenge had been held during
+inspection; challenge expiry remains a hypothesis, not an established cause.
+No verified-number credential was returned.
+
+Later fresh `Sync` attempts returned reason `THROTTLED` (1), with per-record
+code 8 and a message explaining that too many recent verifications or attempts
+had exhausted the resource. Outer gRPC success must not hide this record failure.
+The status schema is original GMS `jcvk`: code field 1 and message field 3;
+field 2 is unknown in the inspected descriptor. It is not `google.rpc.Status`,
+and the message is not a protobuf `RetryInfo`.
+
+The returned timestamp pair yields no positive retry duration under `brwb.b`'s
+millisecond subtraction. Messages normally applies exponential retry delays
+starting at 60 seconds and capped at 86,400 seconds; that client schedule does
+not reveal the server quota reset time. Verification probes were stopped after
+the later retry remained throttled. No IID or SIM identity was changed to evade
+the limit.
+
+Static `brxd` evidence also establishes that HTTP history is an optional
+challenge-response field, enabled by default. Whether the backend needs it for
+this particular token remains unverified; synthetic history is not evidence.
+
+## 9. Direct TS43-to-ACS path
+
+Current Messages also contains `ejts -> ejtx -> ejwd`, which obtains a carrier
+temporary token and submits it directly to ACS. This is distinct from the
+Constellation verified-number-token flow. The multipart fields are
+`as_temp_token` and `client_authenticity_result_<method-id>`; the latter holds
+Base64-encoded content-binding protobuf. Version 2 binds the temporary token
+under `SIM_AUTH_TEMP_TOKEN` together with the actual challenge and session cookie.
+
+**Observed live:** early requests with provisional metadata returned HTTP 400
+with empty bodies. Static comparison found concrete mismatches in the session
+header, client version, user agent, profile/version, initial-only query flag,
+and SIM identifier/proof binding. These were corrected together; the next
+request returned HTTP 200 and a 453-byte WAP provisioning document.
+
+That document contains version **0**, validity **86,400 seconds** and
+`XGOOGLE/InvalidConfigDetails/InvalidConfigReason` set to
+`INVALID_CONFIG_REASON_UNSPECIFIED`. It contains no subscriber credentials.
+This is an invalid configuration, not successful RCS provisioning, and does
+not independently establish an attestation verdict. The existing carrier
+authentication token was reused to acquire a fresh temporary token; no new
+SIM authentication or Constellation request was needed.
+
+The reference session header is `rcs_engine_session_id`; the DroidGuard map
+key remains `PROVISIONING_SESSION_ID`. Profile and version are separate
+`UP_T` and `5.1B` values. The multipart POST omits the initial GET
+`client_authenticity_support` query flag. Actual IMSI and IMEI in the query
+are bound by corresponding salted SHA-384 map entries; captures stay private.
+
 ## Next executable work
 
-1. Preserve the verified Rust discovery path and implement the ACS challenge
-   exchange using synthetic fixtures and externally supplied metadata.
-2. Complete the selected TS43 SIM-authentication challenge and `Proceed`
-   exchange; retain the distinction between pending and verified states.
-3. Reproduce the ACS challenge and its content binding with the selected
-   verification path; distinguish unsupported platform APIs from server rejection.
+1. Preserve the verified Rust discovery, initial ACS and consent paths, and
+   decode verification results without treating pending or outer RPC success as verified.
+2. Trace handling of the invalid ACS configuration and reconcile remaining
+   MLS/client-state requirements with current Messages.
+3. Respect verification backoff, then diagnose `Proceed` using a fresh challenge
+   and genuine carrier response without inspection delays.
 4. Obtain authorized provisioning, then registration and the first two-way
    Google Messages RCS exchange. Those goals are still open.
 

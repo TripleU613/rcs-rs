@@ -9,9 +9,10 @@ handles service provisioning, registration, capabilities and RCS messaging.
 **Status: Rust configuration discovery works against the live service.**
 The Rust ACS client obtains a real DroidGuard challenge and retains its session
 cookie. Rust consent lookup also works with genuine caller-supplied platform
-identity/proof inputs. An independent initial Sync selected TS43 verification;
-subscriber provisioning, registration and Google Messages interoperability remain
-unverified.
+identity/proof inputs. Independent probes completed real SIM authentication and
+obtained a carrier temporary token. ACS currently returns an invalid configuration
+without subscriber credentials; Google number verification is throttled.
+Registration and Google Messages interoperability remain unverified.
 
 Success means this library sends a text to current Google Messages and receives
 a reply over **verified RCS**, independently of Google Messages on the sending
@@ -59,6 +60,12 @@ cargo run --example challenge -- HTTPS_URL VENDOR MODEL OS_VERSION CLIENT_VENDOR
 consent lookup. The example documents its private-file inputs. It requires a
 genuine full-flow IID, checkin identity, owned public key and DroidGuard proof
 or a valid backend-issued cached token; the crate does not fabricate these.
+
+`verification::SyncResponse::decode` and `ProceedResponse::decode` inspect raw
+protobuf captures offline. They expose TS43 challenges and per-record failures,
+retain exact verification/context bytes, and redact private fields in diagnostics.
+They do not send verification requests or validate returned tokens. The decoder
+has also been checked against the private pending, failed and throttled captures.
 
 `cargo test --all-targets` runs the synthetic protocol and localhost transport
 checks. Formatting and strict Clippy also pass. No live credentials are needed
