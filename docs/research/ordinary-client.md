@@ -145,6 +145,105 @@ identifier app-op mode were unchanged. Wireless debugging/pairing remains enable
 for ongoing research. These observations are from the rooted custom-ROM/microG
 test phone using an ordinary app UID; clean vanilla behavior remains untested.
 
+### Advertised IPv6 proxy and authentication follow-up
+
+The same IMS connection advertised three IPv6 P-CSCF addresses. A read-only
+system capture supplied one to the private APK; a fresh capture and network-ID
+guard checked it before use. This supplied address is a laboratory input:
+`LinkProperties.getPcscfServers` is a system API absent from the public SDK36.
+The public telephony P-CSCF getter is also unavailable there; the installed
+privileged implementation reads ISIM contents, rather than the current bearer PCO.
+Public base-link/DNS/route/NAT64 getters do not expose all stacked links.
+
+[RCC.07 v3 A.1.6.1](https://www.gsma.com/futurenetworks/wp-content/uploads/2019/09/RCC07_RCS5_1_advanced_communications_specification_v3.0.pdf)
+describes shared VoLTE IMS using its default settings and the proxy discovered
+through PCO; A.1.6.2 separately describes configured LBO proxy discovery.
+That distinction motivated the advertised-proxy diagnostic. It does not establish
+this deployment's exact RCS registrar selection or permission to add a binding.
+
+| Later ordinary-UID diagnostic | Observed result | What remains open |
+| --- | --- | --- |
+| One OPTIONS to the advertised IPv6 proxy, socket bound to the observed IMS network | Matching Call-ID/CSeq, SIP 403, 485-byte response, no authentication challenge | Demonstrates a SIP round trip; no registration or subscriber admission. |
+| Read the owned UDP socket's SO_MARK through a small JNI helper | Nonzero low-16-bit network ID matches IMS after binding | Confirms actual selection in this build. It does not establish universal Android authorization policy. |
+| REGISTER query with no Contact, Expires or Authorization | Matching 401, Digest MD5, literal `qop="auth-init"`, opaque present, realm matches profile | A real challenge, not accepted credentials or an AKA response. |
+| One authenticated contact-free query using the profile's APPAUTH username/password and a Rust-generated `auth-init` response | Matching 403 with Reason cause403, Warning399 and a `user_unknown` indication | This supplied context was rejected. Later source inspection showed that the reference parser skips these credential fields for this AKA profile; this is not a test of its proper AKA route. |
+
+A REGISTER without Contact fetches bindings and leaves them unchanged under
+[RFC3261 §10.2.3](https://www.rfc-editor.org/rfc/rfc3261.html#section-10.2.3).
+The authenticated query reused the challenge's Call-ID and From tag, increased
+CSeq to2, used a fresh client nonce and preserved the server nonce/opaque/qop.
+There was one explicit credential-bearing send, no retry, guessed password,
+binding request or SIM authentication call. The challenge was about 11 minutes
+old and the query used a new UDP socket. A later control fetched a fresh challenge
+and answered immediately on the same connected socket, with the same Call-ID,
+From tag and local address/port, increasing CSeq from1 to2. It again returned
+403 with a `user_unknown` indication, without a new challenge or explicit stale
+indication. An independent Python calculation and the patched Rust engine both
+matched that control's exact wire proof. These checks remove the challenge-age
+and changed-socket differences; they still do not establish which identity,
+registrar or enrollment requirement caused rejection.
+
+A subsequent parser audit changes the interpretation of both proofs. In this
+exact reference, `ejsw.a` copies APPAUTH realm/username/password only when AuthType
+is `Digest`. This profile says `AKA`, so the reference leaves those Digest fields
+empty. Its separate private IMS identity differs from APPAUTH UserName. The
+internal REGISTER builder has no AKA branch or private-identity substitution;
+if invoked with those defaults, it emits an empty-username/realm MD5 offer.
+Whether a separate native/provider path handles AKA remains unresolved. Thus
+the static-password experiments were off-reference for this profile. They do
+not show rejection of the correct AKA identity or SIM response.
+
+A separate query then offered `AKAv1-MD5` with the exact profile
+Private_User_Identity, home domain and empty nonce/response. This was an
+independent candidate-engine diagnostic, not a recovered Google AKA flow: the
+candidate Rust engine selects that identity for AKA, and its existing serializer
+generated the offer. It sent one contact-free request and received matching
+SIP500, Reason cause500 and Warning399, without WWW-Authenticate. No SIM operation
+or authentication response followed. The query does not establish that these
+profile fields, proxy or omitted registration/security context form an accepted
+AKA route.
+
+The `auth-init` calculation is source-backed reference behavior: Messages APK
+version324451063, SHA256
+`2f666c55f129da84e1606d06e183ee08faf2b560d5a53cb44835007b4a97b159`.
+`ejlx.b` stores the challenge parameters; `ejpa.m` constructs REGISTER and calls
+`ekmf.b`. The helper accepts qop strings starting with `auth`, includes the
+original token with nc/cnonce in the response, and adds a body hash only for exact
+`auth-int`. The REGISTER path emits the original qop value. This is not a public
+specification for arbitrary `auth*` tokens or current-version interoperability.
+The [Digest evaluation patch](../../patches/upstream/README.md) supports only the
+observed additional token and rejects other unsupported offers. Its synthetic
+vectors and an independent calculation agree; actual carrier admission did not.
+
+Private evidence: `ims-pco-summary.json`, `ims-mark-summary.json`,
+`ims-register-query-summary.json`, `ims-register-query-auth-summary.json`,
+`ims-register-auth-query-summary.json` and
+`ims-register-auth-query-error-classification.json`, plus
+`ims-register-fresh-query-summary.json` and
+`ims-register-fresh-query-verification-summary.json`, plus
+`ims-register-aka-initial-summary.json` and
+`ims-register-aka-initial-verification-summary.json`; source reports in
+`static/rcs_runtime/auth-init/`, `static/rcs_runtime/pcscf-public-api-findings.md`
+and `static/rcs_runtime/config-identity-followup.md`, plus
+`static/native-routing/`. The native client can return success if connecting
+to its fwmark daemon fails; therefore successful Java binding alone was weaker
+evidence than the later socket-mark read-back. Exact daemon policy is unaudited.
+All completed runs restored the original APK, removed private inputs and retained
+the SMS holder/identifier app-op mode. Wireless debugging remains enabled.
+
+Public `DnsResolver.rawQuery` for NAPTR on the configured proxy name and SRV on
+its `_sip._udp` name both timed out over IMS, with a 3.5-second limit and
+cancellation for each. A separate direct UDP comparison selected the first DNS
+server from public `LinkProperties.getDnsServers`, verified the socket mark and
+sent one query per type; both timed out after2.5 seconds. This does not distinguish
+network filtering, unavailable DNS or resolver policy, and supplied no replacement
+endpoint. No SIP or credential-bearing request was sent in these DNS checks.
+The same names queried through the default Internet network did return DNS
+responses: the NAPTR query contained a CNAME and no NAPTR answer; the SRV name
+returned NXDOMAIN. This is a bounded comparison, not complete SIP discovery.
+Captures: `ims-dns-summary.json`, `ims-dns-udp-summary.json` and
+`default-dns-summary.json`.
+
 ## Standards route and remaining capabilities
 
 [RCC.14 v10 §§2.2.1 and 2.5.2](https://www.gsma.com/newsroom/wp-content/uploads/RCC.14-v10.0-1.pdf)
@@ -168,8 +267,9 @@ the missing root end tag supplied finds chat/group-chat/file-transfer enabled,
 disabled. The profile therefore calls for SIM authentication and an IMS route;
 ordinary Internet connectivity does not establish those capabilities. The test
 phone did not advertise single-registration support, and the probe has no
-carrier/ICC-auth privileges. No AKA operation or SIP registration was attempted
-with this profile.
+carrier/ICC-auth privileges. No AKA operation or registration binding was
+requested with this profile; later contact-free REGISTER diagnostics are
+described above.
 
 The profile contains repeated password-field names in different subtrees; they
 must be kept by path. Values remain private. In [RCC.07 v3 Table 110](https://www.gsma.com/futurenetworks/wp-content/uploads/2019/09/RCC07_RCS5_1_advanced_communications_specification_v3.0.pdf),

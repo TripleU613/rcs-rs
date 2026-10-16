@@ -1,0 +1,238 @@
+diff --git a/src/security/authentication/digest.rs b/src/security/authentication/digest.rs
+index b9cc977..51c61fe 100644
+--- a/src/security/authentication/digest.rs
++++ b/src/security/authentication/digest.rs
+@@ -126,12 +126,16 @@ impl<'a> DigestChallengeParams<'a> {
+         if let Some(qop) = self.qop {
+             let mut auth: Option<&[u8]> = None;
+             let mut auth_int: Option<&[u8]> = None;
++            let mut auth_init: Option<&[u8]> = None;
+             let mut iter = qop.split(|c| *c == b',');
+             while let Some(qop) = iter.next() {
++                let qop = syntax::trim(qop);
+                 if qop == b"auth" {
+                     auth.replace(qop);
+                 } else if qop == b"auth-int" {
+                     auth_int.replace(qop);
++                } else if qop == b"auth-init" {
++                    auth_init.replace(qop);
+                 }
+             }
+
+@@ -148,6 +152,11 @@ impl<'a> DigestChallengeParams<'a> {
+             if let Some(auth_int) = auth_int {
+                 return Some(auth_int);
+             }
++
++            // Preserve the observed carrier token with the reference SIP client's auth-style calculation.
++            if let Some(auth_init) = auth_init {
++                return Some(auth_init);
++            }
+         }
+
+         None
+@@ -209,23 +218,17 @@ impl<'a> DigestChallengeParams<'a> {
+         hash_function.update(self.nonce);
+         hash_function.update(b":");
+
+-        match qop {
+-            Some(qop) => {
+-                if qop == b"auth" || qop == b"auth-int" {
+-                    if let Some((cnonce, nc)) = &credentials.client_nonce {
+-                        hash_function.update(format!("{:08x}", nc).as_bytes());
+-                        hash_function.update(b":");
+-                        hash_function.update(cnonce);
+-                        hash_function.update(b":");
+-                        hash_function.update(qop);
+-                        hash_function.update(b":");
+-                    } else {
+-                        return Err(ErrorKind::MissingInput);
+-                    }
+-                }
++        if let Some(qop) = qop {
++            if let Some((cnonce, nc)) = &credentials.client_nonce {
++                hash_function.update(format!("{:08x}", nc).as_bytes());
++                hash_function.update(b":");
++                hash_function.update(cnonce);
++                hash_function.update(b":");
++                hash_function.update(qop);
++                hash_function.update(b":");
++            } else {
++                return Err(ErrorKind::MissingInput);
+             }
+-
+-            _ => {}
+         }
+
+         hash_function.update(a2.as_bytes());
+@@ -387,6 +390,17 @@ impl DigestAnswerParams {
+         },
+     ));
+
++        if let Some(challenge) = &self.challenge {
++            if challenge.qop.is_some()
++                && challenge
++                    .as_challenge_param()
++                    .preferred_qop(false)
++                    .is_none()
++            {
++                return Err(ErrorKind::UnsupportedQop);
++            }
++        }
++
+         let mut v = Vec::new();
+
+         v.extend_from_slice(b"Digest ");
+@@ -452,17 +466,16 @@ impl DigestAnswerParams {
+             }
+
+             if let (Some(challenge), Some(algorithm)) = (&self.challenge, hash_algorithm) {
+-                if let Ok((response, qop)) = challenge.as_challenge_param().create_response(
++                let (response, _) = challenge.as_challenge_param().create_response(
+                     &self.username,
+                     &self.uri,
+                     &credentials,
+                     algorithm,
+-                ) {
+-                    v.extend_from_slice(b",response=\"");
+-                    v.extend_from_slice(response.as_bytes());
+-                    v.extend_from_slice(b"\"");
+-                    response_appended = true;
+-                }
++                )?;
++                v.extend_from_slice(b",response=\"");
++                v.extend_from_slice(response.as_bytes());
++                v.extend_from_slice(b"\"");
++                response_appended = true;
+             }
+         }
+
+@@ -495,6 +508,7 @@ impl DigestAnswerParams {
+ }
+
+ pub enum ErrorKind {
++    UnsupportedQop,
+     MissingInput,
+     NoSuchAlgorithm,
+ }
+@@ -535,17 +549,5 @@ impl HashFunction {
+ }
+
+ pub fn empty_digest(algorithm: &[u8]) -> Result<String, ErrorKind> {
+-    match algorithm {
+-        b"md5" => {
+-            let md5 = Md5::new();
+-            Ok(HEXLOWER.encode(&md5.finalize()))
+-        }
+-
+-        b"sha256" | b"sha-256" => {
+-            let context = digest::Context::new(&SHA256);
+-            Ok(HEXLOWER.encode(context.finish().as_ref()))
+-        }
+-
+-        _ => Err(ErrorKind::NoSuchAlgorithm),
+-    }
++    Ok(HashFunction::new(algorithm)?.finish())
+ }
+diff --git a/tests/digest_qop.rs b/tests/digest_qop.rs
+new file mode 100644
+index 0000000..e49d1df
+--- /dev/null
++++ b/tests/digest_qop.rs
+@@ -0,0 +1,96 @@
++use rust_rcs_core::security::authentication::digest::{
++    DigestAnswerParams, DigestChallenge, DigestCredentials,
++};
++
++fn answer(qop: Option<&[u8]>) -> DigestAnswerParams {
++    DigestAnswerParams {
++        realm: b"testrealm@host.com".to_vec(),
++        algorithm: Some(b"MD5".to_vec()),
++        username: b"Mufasa".to_vec(),
++        uri: b"/dir/index.html".to_vec(),
++        challenge: Some(DigestChallenge {
++            realm: b"testrealm@host.com".to_vec(),
++            nonce: b"dcd98b7102dd2f0e8b11d0f600bfb0c093".to_vec(),
++            algorithm: b"MD5".to_vec(),
++            domain: None,
++            opaque: None,
++            qop: qop.map(<[u8]>::to_vec),
++        }),
++        credentials: Some(DigestCredentials {
++            password: b"Circle Of Life".to_vec(),
++            client_data: Some(b"GET".to_vec()),
++            client_nonce: Some((b"0a4f113b".to_vec(), 1)),
++            entity_digest: None,
++            extra_params: Vec::new(),
++        }),
++    }
++}
++fn header(params: &DigestAnswerParams, algorithm: &[u8]) -> String {
++    match params.make_authorization_header(Some(algorithm), false, false) {
++        Ok(value) => String::from_utf8(value).unwrap(),
++        Err(_) => panic!("supported digest failed"),
++    }
++}
++#[test]
++fn unsupported_qop_does_not_fall_back_to_no_qop() {
++    for qop in [b"unsupported".as_slice(), b"", b"future-option"] {
++        let params = answer(Some(qop));
++        assert!(
++            params
++                .make_authorization_header(Some(b"MD5"), false, false)
++                .is_err(),
++            "unsupported qop was accepted"
++        );
++        assert!(
++            params.make_authorization_header(None, true, true).is_err(),
++            "unsupported qop emitted an initial/empty response"
++        );
++    }
++}
++#[test]
++fn missing_client_nonce_returns_error_instead_of_partial_header() {
++    let mut params = answer(Some(b"auth"));
++    params.credentials.as_mut().unwrap().client_nonce = None;
++    assert!(params
++        .make_authorization_header(Some(b"MD5"), false, false)
++        .is_err());
++}
++#[test]
++fn unsupported_hash_returns_error_instead_of_partial_header() {
++    assert!(answer(None)
++        .make_authorization_header(Some(b"unsupported-hash"), false, false)
++        .is_err());
++}
++#[test]
++fn rfc_auth_vector_still_matches() {
++    assert!(header(&answer(Some(b"auth")), b"MD5")
++        .contains("response=\"6629fae49393a05397450978507c4ef1\""));
++}
++#[test]
++fn legacy_challenge_without_qop_still_matches() {
++    let mut params = answer(None);
++    params.credentials.as_mut().unwrap().client_nonce = None;
++    let value = header(&params, b"MD5");
++    assert!(value.contains("response=\"670fd8c2df070c60b045671b8b24ff02\""));
++    assert!(!value.contains(",qop="));
++}
++#[test]
++fn auth_int_empty_body_accepts_uppercase_hash_name() {
++    let value = header(&answer(Some(b"auth-int")), b"MD5");
++    assert!(value.contains("qop=auth-int"));
++    assert!(value.contains("response=\"5e6610ecf9ba3017a4870ad48e3ad30b\""));
++}
++#[test]
++fn qop_list_whitespace_and_unknown_options_preserve_supported_choice() {
++    let value = header(&answer(Some(b"future-option, \tauth-int \t")), b"MD5");
++    assert!(value.contains("qop=auth-int"));
++    assert!(value.contains("response=\"5e6610ecf9ba3017a4870ad48e3ad30b\""));
++}
++
++#[test]
++fn carrier_auth_init_keeps_literal_qop_and_auth_a2() {
++    let value = header(&answer(Some(b"auth-init")), b"MD5");
++    assert!(value.contains(",qop=auth-init"));
++    assert!(value.contains("response=\"ec4b44bae9bef8c19c7f429b93958b5b\""));
++    assert!(value.contains(",cnonce=\"0a4f113b\",nc=00000001"));
++}

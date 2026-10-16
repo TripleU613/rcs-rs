@@ -138,7 +138,7 @@ root attributes are checked and nested parse errors reach callers. Review caught
 whitespace/trimmed-reader and empty-root gaps in the first delimiter check; three
 regressions reproduced them before the parser upgrade and pass afterward.
 
-Patched results: core 6 functional tests, client 14 tests, external consumer
+Patched results: core 14 functional tests, client 14 tests, external consumer
 4 tests pass. The consumer now constructs both PEM and DER contexts successfully
 and still confirms that Linux SIM/network helpers are stubs. Full core testing
 also exposed one existing failing doctest in
@@ -154,8 +154,17 @@ but subsequent wireless pairing delivered valid installed telephony, connectivit
 and permission-controller artifacts. The separate [ordinary-client platform
 audit](ordinary-client.md#installed-platform-audit-and-ims-transport--2026-10-16)
 records their exact permission branches and live network observations. Active
-IMS requests were denied, passive observation/socket marking succeeded, and the
-IMS-bound proxy send failed with ENETUNREACH. Default DNS returned only IPv4 and
-observed IMS base-link addresses were IPv6; translation/native routing/policy
-remain uninspected, so the underlying cause is unresolved.
-That probe does not supply working upstream network callbacks or SIM authority.
+IMS requests were denied and the configured hostname's IPv4 send failed with
+ENETUNREACH; translation/native routing/policy remain uninspected. Later use of a
+laboratory-supplied advertised IPv6 proxy produced real SIP403/401 responses from
+the ordinary APK. Socket-mark read-back matched IMS. The contact-free query's
+MD5/`auth-init` challenge drove a third evaluation patch: preserve the observed
+token, reject unsupported qop, propagate calculation failures and fix uppercase
+empty-body hash lookup. Eight new regressions pass, with clean-pin application
+and byte comparison against the tested files. A Rust-calculated credential query
+received403/`user_unknown`; no binding or authenticated session was obtained.
+The reference parser's Digest-only credential selection was identified afterward:
+using APPAUTH static credentials from this AKA profile was off-reference and
+does not test its proper AKA route.
+These diagnostics do not supply shipping proxy discovery, working upstream
+Android callbacks or SIM authority.

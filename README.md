@@ -31,10 +31,13 @@ identifier app-op lab grant, received a provisioning body. Its XML is unfinished
 and its profile selects SIM AKA, the IMS APN and single registration; this does
 not establish a usable session or ordinary-app support for those operations.
 Installed-code and own-UID checks now identify separate SIM-auth and restricted
-IMS-request gates. Passive IMS observation/socket binding worked; the proxy send
-failed with `ENETUNREACH`. Default DNS returned only IPv4 and observed IMS
-base-link addresses were IPv6, but the underlying cause remains undetermined.
-No SIP response or registration was obtained.
+IMS-request gates. Using a carrier-advertised IPv6 proxy, the normal APK now gets
+real SIP responses: OPTIONS returned 403; a contact-free REGISTER query returned
+401 with MD5/`auth-init`. A Rust-generated credential response was rejected with
+403 and a `user_unknown` indication, but source inspection then showed that this
+AKA profile's APPAUTH fields are skipped by the reference Digest path. No
+registration binding or RCS session was obtained; proxy discovery still used
+laboratory-supplied system data.
 
 Success means this library sends a text to current Google Messages and receives
 a reply over **verified RCS**, independently of Google Messages on the sending

@@ -262,10 +262,17 @@ only to system packages. Actual SMS-role enrollment remains untested.
 
 The ordinary APK satisfied no ICC branch. Active restricted IMS requests threw
 `SecurityException`, while passive observation and unused socket binding worked.
-Default DNS returned only IPv4 for the carrier proxy; observed IMS base-link
-addresses were IPv6 and the IMS-bound send failed with `ENETUNREACH`. Stacked
-links, translation and native routing/policy were not inspected, so these facts
-do not isolate the cause. No SIP response or ordinary-app AKA result was obtained.
+Default DNS returned only IPv4 for the configured carrier proxy; that IMS-bound
+send failed with `ENETUNREACH`. Stacked links/translation remain uninspected.
+Later use of an advertised IPv6 P-CSCF from a laboratory system capture yielded
+real403/401 SIP responses and a socket mark matching IMS. A contact-free REGISTER
+query offered MD5/`auth-init`; the Rust-generated response with the configuration's
+APPAUTH credentials received403/`user_unknown`. No binding or admitted session
+was obtained. Later reference-source inspection showed that its parser reads
+those APPAUTH credentials only for Digest, while this profile selects AKA.
+The static-password test therefore did not exercise its proper AKA route.
+Registrar choice, line enrollment and ordinary-app proxy discovery remain
+unresolved; this result does not validate the supplied password or AKA.
 The earlier successful SIM-auth laboratory exchange used the
 privileged Phone process through temporary root instrumentation; it does not
 prove an ordinary app can perform that operation. Host integration must check

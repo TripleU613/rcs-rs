@@ -7,6 +7,7 @@ network or SIM operations and do not supply Android platform implementations.
 | Checkout | Required commit | Patch |
 | --- | --- | --- |
 | `rust-rcs-core` | `f2f351c467ba6f2aa9a786647845b6ad21f300c5` | `0001-core-disable-protocol-logging.patch` |
+| `rust-rcs-core` | same pin, after `0001` | `0003-core-digest-negotiation.patch` |
 | `rust-rcs-client` | `720b42fad99d6d1f71dd89dcb11293245a0960d7` | `0002-client-trust-and-configuration.patch` |
 
 The core patch makes the shared protocol logger silent in all build modes and
@@ -15,6 +16,23 @@ bodies. Its test captures a child process exercising real digest/header code and
 checks synthetic plaintext and hex sentinels. Timing/worker diagnostic prints
 outside that logger remain; they do not contain protocol credentials in the
 inspected source.
+
+The second core patch preserves the observed carrier `auth-init` token in the
+Digest calculation and header, using the reference SIP client's auth-style A2
+(method and URI, without the body hash). This is a compatibility behavior, not a
+standard synonym for `auth-int` or proof that this carrier accepts our credentials.
+Standard `auth`/`auth-int` choices take priority; list whitespace is trimmed.
+Other unsupported or empty qop offers return `UnsupportedQop` instead of silently
+falling back to a legacy response. Digest calculation errors now reach callers;
+missing client nonces or unsupported hashes cannot produce a partial header.
+Empty-body hashing reuses the case-insensitive hash constructor.
+
+Eight synthetic tests cover RFC auth/no-qop vectors, the observed `auth-init`
+calculation, uppercase MD5 with auth-int, list whitespace, unsupported qop and
+error propagation. Six failed before the fixes while the two RFC controls passed.
+`ErrorKind` gains `UnsupportedQop`; external exhaustive matches must handle it.
+The reference source and separate rejected live query are recorded in the
+[ordinary-client audit](../../docs/research/ordinary-client.md).
 
 The client patch loads real PEM/DER roots recursively from `<root>/certs`, accepts
 case-insensitive extensions and returns errors for missing/empty directories,
@@ -49,13 +67,15 @@ git -C "$RCS_EVAL_DIR/rust-rcs-core" checkout --detach f2f351c467ba6f2aa9a786647
 git -C "$RCS_EVAL_DIR/rust-rcs-client" checkout --detach 720b42fad99d6d1f71dd89dcb11293245a0960d7
 git -C "$RCS_EVAL_DIR/rust-rcs-core" apply --check "$RCS_PATCH_DIR/0001-core-disable-protocol-logging.patch"
 git -C "$RCS_EVAL_DIR/rust-rcs-core" apply "$RCS_PATCH_DIR/0001-core-disable-protocol-logging.patch"
+git -C "$RCS_EVAL_DIR/rust-rcs-core" apply --check "$RCS_PATCH_DIR/0003-core-digest-negotiation.patch"
+git -C "$RCS_EVAL_DIR/rust-rcs-core" apply "$RCS_PATCH_DIR/0003-core-digest-negotiation.patch"
 git -C "$RCS_EVAL_DIR/rust-rcs-client" apply --check "$RCS_PATCH_DIR/0002-client-trust-and-configuration.patch"
 git -C "$RCS_EVAL_DIR/rust-rcs-client" apply "$RCS_PATCH_DIR/0002-client-trust-and-configuration.patch"
 cargo test --manifest-path "$RCS_EVAL_DIR/rust-rcs-core/Cargo.toml" --lib --tests
 cargo test --manifest-path "$RCS_EVAL_DIR/rust-rcs-client/Cargo.toml"
 ```
 
-Observed on Linux: core **6 functional tests**, client **14 tests**, and a separate
+Observed on Linux: core **14 functional tests**, client **14 tests**, and a separate
 consumer **4 tests** pass. No configuration, DNS, HTTP, SIP or SIM request is
 submitted by the new checks. Core's full default command also runs 11 doctests:
 10 pass, while the existing `index_skipping_ows_and_obs_fold` example fails due
