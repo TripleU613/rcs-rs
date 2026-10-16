@@ -357,6 +357,15 @@ before carrier authentication or `Proceed`; the corrected payload still lacks
 a fresh live acceptance test. Temporary root debugging and the USB forward
 were removed afterward, with USB ADB retained and stay-awake restored to 0.
 
+A controlled same-subscriber/IID Rust retry at **08:08 UTC** followed more than
+65 minutes without another verification RPC. It again returned NONE (1),
+THROTTLED (1), record code 8, with no credential or pending challenge. The job
+stopped before carrier authentication or Proceed and completed its temporary
+debug cleanup. The captured response was decoded offline with the same result.
+There is no accepted subscriber configuration or RCS service session. Further
+work on actual registration/delivery requires the provider to admit verification;
+request builders and a self-hosted server cannot supply that missing credential.
+
 Static `brxd` evidence also establishes that HTTP history is an optional
 challenge-response field, enabled by default. Whether the backend needs it for
 this particular token remains unverified; synthetic history is not evidence.

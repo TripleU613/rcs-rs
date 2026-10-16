@@ -12,7 +12,7 @@ not the Google verified-number credential needed by this route.
 | Configuration discovery | Rust receives this subscription's ACS and UPI configuration | Preserve the configured route and actual client metadata |
 | GMS consent and initial verification | Rust consent works; an earlier probe received a real pending TS43 challenge | A fresh, non-throttled verification challenge |
 | Carrier authentication | Actual selected-SIM EAP-AKA and AcquireTemporaryToken succeeded | Submit complete genuine JSON under the corrected `joty` string field 2 |
-| Google number credential | Last Rust Sync at 07:02:33 UTC returned NONE / THROTTLED / record code 8 | Successful verification and its returned number credential |
+| Google number credential | Last Rust Sync at 08:08 UTC returned NONE / THROTTLED / record code 8 | Successful verification and its returned number credential |
 | UPI ACS provisioning | Current Messages consumer path recovered statically below | A genuine Google number credential, matching attestation/session and accepted subscriber configuration |
 | Registration and messaging | No independent service session | Register using the accepted configuration, then verify a two-device RCS send/reply |
 
@@ -21,7 +21,11 @@ Rust request has synthetic wire/transport coverage and independent descriptor
 review, but the server throttle prevented its fresh live test. No quota reset
 deadline was recovered. The timestamp pair yields no positive retry duration;
 Messages' client backoff does not establish when the server will admit another
-attempt. Do not reset IID/SIM identities or repeatedly submit verification to
+attempt. A single further attempt at 08:08 UTC, after more than 65 minutes
+since the previous one, returned the same throttle. It issued no challenge or
+number credential, so carrier authentication, corrected Proceed and the prepared
+UPI ACS handoff were not run. The one-shot job is terminal; no more verification
+attempts are scheduled. Temporary debugging was removed and USB retained. Do not reset IID/SIM identities or repeatedly submit verification to
 turn this unknown into apparent progress.
 
 ## The UPI credential goes to a different ACS endpoint
