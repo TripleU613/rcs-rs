@@ -386,6 +386,32 @@ mod tests {
     }
 
     #[test]
+    fn direct_ts43_flag_is_independent_of_upi_number_verification() {
+        // Independent wire literals: correlation "0", onboarding {UPI33, directTS43 55}.
+        for (upi, direct) in [(1, false), (0, true)] {
+            let bytes = Bytes::from(vec![
+                10,
+                11,
+                10,
+                1,
+                b'0',
+                26,
+                6,
+                0x88,
+                2,
+                upi,
+                0xb8,
+                3,
+                u8::from(direct),
+            ]);
+            let discovery = Discovery::decode(bytes.clone()).unwrap();
+            assert_eq!(discovery.flags.upi_enabled_state, i32::from(upi));
+            assert_eq!(discovery.flags.ts43_supported, direct);
+            assert_eq!(discovery.raw_protobuf(), bytes);
+        }
+    }
+
+    #[test]
     fn rejects_missing_wrong_and_duplicate_configuration() {
         for fixture in [
             include_bytes!("../tests/fixtures/missing.bin").as_slice(),

@@ -121,6 +121,9 @@ pub struct OnboardingFlags {
     pub upi_enabled_state: i32,
     #[prost(bool, tag = "44")]
     pub enable_droidguard_with_http_get: bool,
+    /// Direct ACS TS43 provisioning; separate from TS43 inside UPI number verification.
+    #[prost(bool, tag = "55")]
+    pub ts43_supported: bool,
 }
 
 pub mod onboarding_flags {

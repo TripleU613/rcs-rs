@@ -70,6 +70,8 @@ For the tested MCC/MNC, the actual response selected:
 | RCS profile/version | `UP_T` / `5.1B` |
 | IMEI/IMSI format | Ignored (raw enum 4) |
 | DroidGuard with HTTP GET | true |
+| UPI enabled state | Enabled (raw enum 1) |
+| Direct TS43 provisioning supported | false (field 55); no ECS URL in field 56 |
 
 Raw PII enum values must not be confused with the old client's internal format
 integers. In the current artifact, `geef.c(4)` maps to enum representation 6,
@@ -368,12 +370,34 @@ key remains `PROVISIONING_SESSION_ID`. Profile and version are separate
 `client_authenticity_support` query flag. Actual IMSI and IMEI in the query
 are bound by corresponding salted SHA-384 map entries; captures stay private.
 
+**Further observed live:** the omitted participant proof was reconstructed using
+fresh owned P-256 keys. Messages' native signer produced a DER ECDSA signature
+that independently verified using Java and OpenSSL with the
+[RFC 9420 SignWithLabel encoding](https://www.rfc-editor.org/rfc/rfc9420.html#section-5.1.2).
+The application label is `ACS_Participant_Key_Proof`, and the content is the raw
+UTF-8 ACS nonce. Public key SPKI DER and signature are unpadded Base64URL in
+`participant_public_key` and `participant_key_signed_nonce`. The running app's
+`home_kds` routing value was read as 2. No existing application identity keys
+were read or replaced.
+
+A fresh ACS exchange including those fields returned the identical version-0
+invalid configuration. Adding the participant proof did not resolve the remaining failure in this
+tested request. The response contains no explicit
+attestation verdict.
+
+Routing is a separate constraint: the actual discovery response enables UPI
+but explicitly disables **direct ACS TS43** and supplies no direct entitlement
+server URL. That flag does not disable TS43 as an inner Constellation verification
+method: the live Sync response selected exactly that method. The direct ACS
+experiment does not establish a supported alternative to the configured UPI
+flow. Further direct ACS requests were stopped; number verification remains
+the selected path and is currently throttled.
+
 ## Next executable work
 
 1. Preserve the verified Rust discovery, initial ACS and consent paths, and
    decode verification results without treating pending or outer RPC success as verified.
-2. Trace handling of the invalid ACS configuration and reconcile remaining
-   MLS/client-state requirements with current Messages.
+2. Keep direct ACS TS43 routing separate from TS43 inside UPI verification.
 3. Respect verification backoff, then diagnose `Proceed` using a fresh challenge
    and genuine carrier response without inspection delays.
 4. Obtain authorized provisioning, then registration and the first two-way

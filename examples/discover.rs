@@ -79,6 +79,10 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     );
     println!("UPI state: {}", discovery.flags.upi_enabled_state);
     println!(
+        "Direct TS43 provisioning: {}",
+        discovery.flags.ts43_supported
+    );
+    println!(
         "IMEI format: {:?}; IMSI format: {:?}",
         rcs_rs::wire::PiiFormat::try_from(discovery.flags.provisioning_imei_format),
         rcs_rs::wire::PiiFormat::try_from(discovery.flags.provisioning_imsi_format)
