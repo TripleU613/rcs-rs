@@ -277,7 +277,7 @@ pub async fn proceed_ts43_unsigned(
     ProceedResponse::decode(response)
 }
 
-async fn rpc<T: Message + Default + 'static>(
+pub(super) async fn rpc<T: Message + Default + 'static>(
     metadata: &crate::ClientMetadata,
     message: T,
     path: &'static str,
@@ -294,7 +294,7 @@ async fn rpc<T: Message + Default + 'static>(
     .map_err(Error::Transport)?;
     send_channel(channel, metadata, message, path).await
 }
-async fn send_channel<T: Message + Default + 'static>(
+pub(super) async fn send_channel<T: Message + Default + 'static>(
     channel: tonic::transport::Channel,
     metadata: &crate::ClientMetadata,
     message: T,

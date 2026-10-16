@@ -34,6 +34,21 @@ No returned state/token is validated as proof that a phone number is verified.
   reconstruction error. These request fixtures use the original descriptor,
   not a round trip through the Rust encoder under test.
 
+- `read-numbers-request.bin`: independently encoded signed read-only request
+  (`brad`, `joxl/joxn/joxp`): request session1, credentials2 with synthetic IID1,
+  synthetic DER signature2 and Timestamp3 (1700000000 seconds, 123000000 nanos),
+  packed selection3=2 (RCS), caller4 with oldest-certificate SHA1 in standard
+  padded Base64 field1, package2 and nonce3. The signature is the synthetic
+  ASN.1 sequence `3006020101020101`, not a usable credential or ownership proof.
+  DroidGuard is omitted per the recovered read API default; Sync's proof/cache
+  encoding does not belong in this request.
+- `read-numbers-response.bin`: response repeated field2 contains phone1
+  `+10000000000`, timestamp2={seconds1:1}, synthetic `id_token`3 and unknown numeric
+  RCS state4=99, plus unknown fields inside and outside the record. Descriptor
+  sources are `joxm/joxq`; timestamps stay in raw record bytes. Actual accepted
+  live reads currently have zero records, so this record-bearing fixture is
+  synthetic schema coverage, not evidence of a verified subscriber.
+
 Decoder limits are 256 KiB per response, 64 result records/operation targets,
 16 KiB per text/context value, and 8 KiB for the HTTPS carrier URL. Singular known
 fields and conflicting known oneof payloads reject duplicates. Across Sync records,

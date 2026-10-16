@@ -192,6 +192,61 @@ additional registration hypothesis is not established by this artifact. The
 separate ECDSA client key is advertised by the first Sync/GetConsent header,
 then used for client authentication after backend acknowledgement.
 
+**Follow-up source audit and live read-only probe:** original `brad.c` gets a
+project-specific token for the configured read-only project, default
+`745476177629` (`jseq.e`). It shares the RSA-derived IID identity with the full
+verification project, but the two tokens are not interchangeable. The retained
+owned tokens were checked to have the same prefix, matching the owned RSA public
+key; no registration or identity reset was needed for this follow-up.
+
+Unlike Sync, this read API signs without checking the public-key acknowledgement
+flag. `jsgf.h` defaults to true: `brad:81–94` signs UTF-8
+`iid_token:timestamp.seconds:timestamp.nanos` with the persisted EC key using
+SHA-256/ECDSA (`brdt.e`). Credentials contain IID field 1, DER signature field 2
+and Timestamp field 3. The caller certificate/package/nonce are fields 1/2/3 of
+`joxp`; selection 2 requests RCS records. The default `jsgf.l=true` omits
+DroidGuard on this read API. Those are shipped defaults, not recovered effective
+server configuration.
+
+A correctly signed query at **14:36 UTC** used the existing owned read-only IID,
+the same owned EC key as the full-flow probe, and the actual caller binding.
+Local verification accepted its signature and rejected altered signing input;
+independent source review checked its request. Google returned outer gRPC code 8
+with structured `RATE_LIMIT_EXCEEDED`, quota
+`GetVerifiedPerMinutePerProject`, metric `getverified_requests`, limit
+**1,350,000 requests/minute/project**, location `global`, for consumer project
+`745476177629`. It returned no records. This project-level read quota is a
+different response from Sync's per-record verification-attempt exhaustion.
+Neither proves that IID, signature or subscriber admission would pass later
+checks. Private evidence: `constellation-static/gpnv-signed-attempt01/`.
+
+A single signed recheck at **14:39 UTC**, more than 125 seconds later, returned
+**gRPC status 0 with an empty record list**. It retained the same owned IID/key
+and supplied a fresh signing timestamp and read-request session. No registration,
+Sync or carrier call ran. This demonstrates an accepted read request; there is
+still no verified-number record or credential. The first quota response was not
+a zero-quota endpoint. Historical unsigned failures and this result also differ
+in the established full-flow EC context, so they do not isolate signature
+omission as the sole earlier cause. Private evidence:
+`constellation-static/gpnv-signed-attempt02/`.
+
+The Rust `verification::read_verified_numbers` implementation follows this
+observed signed read path, sharing the existing bounded TLS/gRPC transport. The
+host supplies its project-specific IID, owned EC signature and exact signing
+time; `read_numbers_signing_input` provides the bytes to sign. Signature size is
+bounded, but the library does not validate key ownership, signature freshness or
+returned credentials. Response decoding retains the original record bytes
+(including timestamp/unknown fields), bounds text/record counts, rejects duplicate
+known singular fields and redacts private values. Empty results remain empty;
+project quota errors are returned without automatic retry.
+
+At **14:47 UTC**, a separate private Rust consumer of that exported API also
+completed successfully with zero records and zero credentials. It signed fresh
+library-provided bytes with the same owned EC key; no phone instrumentation or
+new verification request was used. The original response is 38 bytes despite
+the empty record list: unknown root fields are retained rather than counted as
+records. Private evidence: `constellation-static/gpnv-rust-attempt01/`.
+
 ## 5. Full-flow consent lookup works independently
 
 **Observed live:** `PhoneDeviceVerification/GetConsent` returned HTTP/2 200,
@@ -365,6 +420,23 @@ debug cleanup. The captured response was decoded offline with the same result.
 There is no accepted subscriber configuration or RCS service session. Further
 work on actual registration/delivery requires the provider to admit verification;
 request builders and a self-hosted server cannot supply that missing credential.
+
+After the user resumed work, a single same-identity Rust Sync at **14:30 UTC**,
+more than six hours after the previous attempt, again returned NONE (1),
+THROTTLED (1), record code 8. There was no public-key update, pending challenge
+or number credential. Carrier authentication and Proceed did not run. The
+360-byte response was independently decoded offline; the one-shot job is
+terminal, its debug server and forward are removed, and no further Sync is
+scheduled. Private evidence: `constellation-static/rust-attempt07/`.
+
+The earlier failed challenge is not an established alternative. Original
+`bqzr.e:651–719` continues only while the current returned record is PENDING;
+`bqzr.d:605–615` preserves a pending record after a transport exception, but our
+historical Proceed returned a terminal NONE/FAILED record successfully. No
+server challenge TTL was recovered. The read-only API returns existing verified
+records without pending challenge/context, so it cannot restore that challenge.
+Replaying the historical pending snapshot would not reproduce normal client
+continuation and would not isolate challenge age from terminal consumption.
 
 Static `brxd` evidence also establishes that HTTP history is an optional
 challenge-response field, enabled by default. Whether the backend needs it for

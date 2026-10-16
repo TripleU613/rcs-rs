@@ -13,6 +13,8 @@ identity/proof inputs. Independent probes completed real SIM authentication and
 obtained a carrier temporary token. ACS currently returns an invalid configuration
 without subscriber credentials; the Rust number-verification RPC also reaches
 Google, whose verification record remains throttled.
+Signed read-only number lookup succeeds with the client's owned credentials,
+but currently returns no verified-number records.
 Registration and Google Messages interoperability remain unverified.
 
 Success means this library sends a text to current Google Messages and receives
@@ -77,6 +79,18 @@ Neither function retries automatically or treats outer RPC success as verificati
 `Verification::private_id_token` exposes the optional `id_token` parameter for
 the UPI provisioning step. It is unvalidated service data; its presence is not
 proof of verified identity, JWT validity or registration.
+
+`verification::read_verified_numbers` queries this client's existing RCS number
+records without starting number verification. Supply the read API's distinct
+project-specific IID, a fresh timestamp and the owned persisted EC key's DER
+signature over `read_numbers_signing_input(iid, timestamp)` using SHA256withECDSA.
+Keep that IID and timestamp identical in `ReadNumbersRequest`, and supply the
+actual caller certificate, package and nonce. The library bounds the signature
+but does not verify key ownership or freshness. Empty results stay empty, and
+quota errors never cause automatic retries. Private phone/token accessors return
+unvalidated service data; original records retain timestamp and unknown fields.
+The exported Rust API has also returned an empty result against the live service;
+it is not successful subscriber verification or RCS registration.
 
 ```sh
 cargo run --example verify_number -- sync /private/session.json /private/new-response.pb

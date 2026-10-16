@@ -1,13 +1,18 @@
-//! Initial number-verification requests and bounded response views.
-//! SIM authentication, signed follow-ups and token validation remain platform work.
+//! Number-verification requests, signed read-only lookup and bounded response views.
+//! SIM authentication, signed verification follow-ups and token validation remain platform work.
 
 use crate::Error;
 use bytes::Bytes;
 use prost::Message;
 use std::{collections::HashSet, fmt};
 
+mod read;
 mod request;
 mod wire;
+pub use read::{
+    ReadNumber, ReadNumbersRequest, ReadNumbersResponse, read_numbers_signing_input,
+    read_verified_numbers,
+};
 pub use request::{InitialSync, OperatorInfo, TelephonyInfo, initial_sync, proceed_ts43_unsigned};
 
 const MAX_MESSAGE: usize = 256 * 1024;

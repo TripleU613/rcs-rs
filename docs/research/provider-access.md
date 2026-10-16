@@ -12,7 +12,8 @@ not the Google verified-number credential needed by this route.
 | Configuration discovery | Rust receives this subscription's ACS and UPI configuration | Preserve the configured route and actual client metadata |
 | GMS consent and initial verification | Rust consent works; an earlier probe received a real pending TS43 challenge | A fresh, non-throttled verification challenge |
 | Carrier authentication | Actual selected-SIM EAP-AKA and AcquireTemporaryToken succeeded | Submit complete genuine JSON under the corrected `joty` string field 2 |
-| Google number credential | Last Rust Sync at 08:08 UTC returned NONE / THROTTLED / record code 8 | Successful verification and its returned number credential |
+| Read-only number status | Signed reference query at 14:39 UTC and exported Rust API at 14:47 UTC succeeded with zero records | This lookup cannot create a verified number or restore a challenge |
+| Google number credential | Last Rust Sync at 14:30 UTC returned NONE / THROTTLED / record code 8 | Successful verification and its returned number credential |
 | UPI ACS provisioning | Current Messages consumer path recovered statically below | A genuine Google number credential, matching attestation/session and accepted subscriber configuration |
 | Registration and messaging | No independent service session | Register using the accepted configuration, then verify a two-device RCS send/reply |
 
@@ -27,6 +28,31 @@ number credential, so carrier authentication, corrected Proceed and the prepared
 UPI ACS handoff were not run. The one-shot job is terminal; no more verification
 attempts are scheduled. Temporary debugging was removed and USB retained. Do not reset IID/SIM identities or repeatedly submit verification to
 turn this unknown into apparent progress.
+
+A user-resumed same-identity attempt at **14:30 UTC**, after more than six hours,
+returned the same verification throttle. No carrier authentication or Proceed
+ran, and no more Sync attempts are scheduled. The old challenge is not a normal
+resume path: GMS stops continuation after a successful RPC returns NONE/FAILED;
+its exception path alone preserves the previous pending record. Its server TTL
+and post-failure reuse policy remain unknown.
+
+The separate read-only `PhoneNumber/GetVerifiedPhoneNumbers` path cannot restore
+pending challenges. Its original default uses project `745476177629`, sharing
+the full-flow RSA identity but using a distinct token. Unlike unsigned bootstrap
+Sync, it enables a persisted-EC-key signature by default, without an ack gate.
+The historical unsigned read probes did not establish parity with that default.
+A signed query at **14:36 UTC**, using our existing owned tokens/key and RCS
+selection, returned outer gRPC 8 with structured `RATE_LIMIT_EXCEEDED` for the
+**project-wide read requests/minute** limit, value 1,350,000, location global.
+This is distinct from Sync's record-level verification-attempt throttle and
+does not establish later authentication acceptance. No verified records were
+obtained on that request. A single recheck after more than 125 seconds returned
+**gRPC 0 with zero records**, using the same owned identity/key and a fresh
+timestamp/session. The exported Rust API independently repeated the accepted
+empty read at 14:47 UTC. The signed read path is now accepted independently of the
+still-throttled Sync. It cannot create the missing credential. See the source and
+capture boundaries in
+[the bootstrap evidence](gapps-bootstrap.md).
 
 ## The UPI credential goes to a different ACS endpoint
 
