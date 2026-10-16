@@ -86,8 +86,23 @@ pub(super) struct Verification {
     pub verified_infos: Vec<bytes::Bytes>,
     #[prost(bytes = "bytes", repeated, tag = "4")]
     pub challenges: Vec<bytes::Bytes>,
+    #[prost(bytes = "bytes", repeated, tag = "6")]
+    pub params: Vec<bytes::Bytes>,
     #[prost(bytes = "bytes", repeated, tag = "9")]
     pub unverified_infos: Vec<bytes::Bytes>,
+}
+#[derive(Clone, PartialEq, prost::Message)]
+#[prost(skip_debug)]
+pub(super) struct Param {
+    #[prost(string, repeated, tag = "1")]
+    pub names: Vec<String>,
+    #[prost(string, repeated, tag = "2")]
+    pub values: Vec<String>,
+}
+impl std::fmt::Debug for Param {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Param([REDACTED])")
+    }
 }
 impl std::fmt::Debug for Verification {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

@@ -74,6 +74,9 @@ SIM/caller facts. `verification::proceed_ts43_unsigned` submits a genuine full
 carrier JSON response while preserving the original verification/context bytes.
 It rejects public-key updates because signed follow-ups are not implemented.
 Neither function retries automatically or treats outer RPC success as verification.
+`Verification::private_id_token` exposes the optional `id_token` parameter for
+the UPI provisioning step. It is unvalidated service data; its presence is not
+proof of verified identity, JWT validity or registration.
 
 ```sh
 cargo run --example verify_number -- sync /private/session.json /private/new-response.pb
@@ -92,5 +95,8 @@ for these tests.
 
 See [recovered GApps behavior](docs/research/gapps-bootstrap.md) for artifact
 identities, wire evidence, live checks and remaining blockers.
+The [provider-access record](docs/research/provider-access.md) separates this
+subscription's UPI credential/provisioning path from Android single registration
+and the carrier temporary-token route.
 
 Nothing has been pushed or published.

@@ -33,7 +33,7 @@ pub struct VerificationResult {
     pub status: Option<RecordStatus>,
 }
 pub struct Verification {
-    /// Known values: NONE=1 and PENDING=2. Other values remain numeric, without inference.
+    /// Known values: NONE=1, PENDING=2, VERIFIED=3. State alone is not a validated credential.
     pub state: Option<i32>,
     /// Known examples: THROTTLED=1, FAILED=2. Unknown values remain numeric.
     pub unverified_reason: Option<i32>,
@@ -43,6 +43,7 @@ pub struct Verification {
     raw: Bytes,
     association: Option<Bytes>,
     key_status: Option<i32>,
+    id_token: Option<String>,
 }
 /// Custom service status: code field1, message field3. Field2 remains opaque in raw bytes.
 pub struct RecordStatus {
@@ -182,9 +183,40 @@ impl ProceedResponse {
     }
 }
 impl Verification {
+    /// Optional `id_token` service parameter, intended for the UPI ACS header.
+    /// This is unvalidated service data: presence does not establish successful
+    /// number verification, JWT validity, expiry, audience or RCS provisioning.
+    /// It is distinct from carrier temporary tokens and Sync restoration tokens.
+    pub fn private_id_token(&self) -> Option<&str> {
+        self.id_token.as_deref()
+    }
     fn decode(raw: Bytes) -> Result<Self, Error> {
         let _: wire::Integer2 = decode(&raw)?;
         let message: wire::Verification = decode(&raw)?;
+        if message.params.len() > MAX_RECORDS {
+            return Err(Error::InvalidResponse("too many verification parameters"));
+        }
+        let mut id_token = None;
+        for bytes in message.params {
+            let param: wire::Param = decode(&bytes)?;
+            let name = text(one(param.names)?)?;
+            let value = one(param.values)?;
+            if let Some(value) = &value {
+                bounded(value.as_bytes(), MAX_TEXT)?;
+            }
+            if name.as_deref() == Some("id_token") {
+                let value = value
+                    .filter(|v| !v.is_empty() && v.bytes().all(|b| b.is_ascii_graphic()))
+                    .ok_or(Error::InvalidResponse(
+                        "invalid number credential parameter",
+                    ))?;
+                if id_token.replace(value).is_some() {
+                    return Err(Error::InvalidResponse(
+                        "duplicate number credential parameter",
+                    ));
+                }
+            }
+        }
         let association = one(message.associations)?;
         let state = one(message.states)?;
         let verified = one(message.verified_infos)?;
@@ -238,6 +270,7 @@ impl Verification {
             raw,
             association,
             key_status: None,
+            id_token,
         })
     }
     /// Exact embedded Verification, including unknown fields and challenge bytes.

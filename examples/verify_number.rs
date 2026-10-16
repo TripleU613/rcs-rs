@@ -7,6 +7,7 @@
 //! carrier_response_file and optional http_history_file (JSON string array).
 //! Paths are relative to SESSION_JSON. Keep all inputs/captures outside the repo.
 //! A response file is exclusively reserved before a request, and may be empty on error.
+//! session_id is the PDV RPC session; carry caller_session_id into later ACS provisioning.
 #[path = "support/pdv_input.rs"]
 mod input;
 use input::{invalid, read_bounded};
@@ -144,13 +145,17 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             .map_err(|_| invalid("cannot write private response"))?;
         for result in &response.results {
             println!(
-                "Verification state: {:?}; reason: {:?}; record code: {:?}",
+                "Verification state: {:?}; reason: {:?}; record code: {:?}; number credential present: {}",
                 result.verification.as_ref().and_then(|v| v.state),
                 result
                     .verification
                     .as_ref()
                     .and_then(|v| v.unverified_reason),
-                result.status.as_ref().and_then(|s| s.code)
+                result.status.as_ref().and_then(|s| s.code),
+                result
+                    .verification
+                    .as_ref()
+                    .is_some_and(|v| v.private_id_token().is_some())
             );
         }
     } else {
@@ -199,12 +204,16 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             .write_all(response.raw_protobuf())
             .map_err(|_| invalid("cannot write private response"))?;
         println!(
-            "Verification state: {:?}; reason: {:?}",
+            "Verification state: {:?}; reason: {:?}; number credential present: {}",
             response.verification.as_ref().and_then(|v| v.state),
             response
                 .verification
                 .as_ref()
-                .and_then(|v| v.unverified_reason)
+                .and_then(|v| v.unverified_reason),
+            response
+                .verification
+                .as_ref()
+                .is_some_and(|v| v.private_id_token().is_some())
         );
     }
     output

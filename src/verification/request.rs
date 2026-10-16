@@ -8,7 +8,9 @@ use std::{fmt, time::Duration};
 mod wire;
 
 pub struct InitialSync {
+    /// GMS/PDV RPC session, reused for its Proceed call.
     pub session_id: String,
+    /// Logical client provisioning session, also used by ACS and its attestation.
     pub caller_session_id: String,
     pub caller_certificate_sha1: [u8; 20],
     pub imsi: String,

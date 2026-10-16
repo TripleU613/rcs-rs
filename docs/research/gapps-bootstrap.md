@@ -418,6 +418,10 @@ the selected path and is currently throttled.
 1. Preserve the verified Rust discovery, initial ACS and consent paths, and
    decode verification results without treating pending or outer RPC success as verified.
 2. Keep direct ACS TS43 routing separate from TS43 inside UPI verification.
+   The [provider-access record](provider-access.md) now traces the actual UPI
+   `id_token` parameter through `/provision`, version-1 attestation binding and
+   the two distinct session IDs. Rust exposes that optional private parameter
+   without validating its claims or treating presence as verification.
 3. Respect verification backoff, then diagnose `Proceed` using a fresh challenge
    and genuine carrier response without inspection delays.
 4. Obtain authorized provisioning, then registration and the first two-way

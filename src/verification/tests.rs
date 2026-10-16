@@ -1,6 +1,92 @@
 use super::*;
 
 #[test]
+fn rejects_duplicate_number_credentials_before_they_can_be_used_for_provisioning() {
+    let param = [
+        field(1, b"id_token"),
+        field(2, b"synthetic-number-credential"),
+    ]
+    .concat();
+    let record = [vec![16, 3], field(6, &param), field(6, &param)].concat();
+    assert!(ProceedResponse::decode(Bytes::from(field(1, &record))).is_err());
+}
+
+#[test]
+fn number_credential_comes_from_verification_params_and_keeps_original_bytes_private() {
+    let token = b"synthetic-number-credential";
+    let param = [field(1, b"id_token"), field(2, token)].concat();
+    let verified = field(1, b"+15550000001");
+    let record = [
+        vec![16, 3],
+        field(3, &verified),
+        field(6, &param),
+        field(15, b"future"),
+    ]
+    .concat();
+    let response = ProceedResponse::decode(Bytes::from(field(1, &record))).unwrap();
+    let v = response.verification.as_ref().unwrap();
+    assert_eq!(v.private_id_token(), Some("synthetic-number-credential"));
+    assert_eq!(v.raw_protobuf(), record);
+    assert!(!format!("{response:?}").contains("synthetic-number-credential"));
+    let sync = SyncResponse::decode(Bytes::from(field(1, &field(1, &record)))).unwrap();
+    assert_eq!(
+        sync.results[0]
+            .verification
+            .as_ref()
+            .unwrap()
+            .private_id_token(),
+        Some("synthetic-number-credential")
+    );
+
+    let no_credential = [vec![16, 3], field(3, &verified)].concat();
+    let root_restoration_token = field(1, token);
+    let sync = SyncResponse::decode(Bytes::from(
+        [
+            field(1, &field(1, &no_credential)),
+            field(5, &root_restoration_token),
+        ]
+        .concat(),
+    ))
+    .unwrap();
+    assert_eq!(
+        sync.results[0]
+            .verification
+            .as_ref()
+            .unwrap()
+            .private_id_token(),
+        None
+    );
+}
+
+#[test]
+fn rejects_malformed_or_unbounded_number_credential_params() {
+    for param in [
+        field(1, b"id_token"),
+        [field(1, b"id_token"), field(2, b"")].concat(),
+        [field(1, b"id_token"), field(2, b"synthetic\r\nprivate")].concat(),
+        [field(1, b"id_token"), field(2, &vec![b'x'; 16 * 1024 + 1])].concat(),
+        [
+            field(1, b"id_token"),
+            field(1, b"id_token"),
+            field(2, b"synthetic"),
+        ]
+        .concat(),
+        [
+            field(1, b"id_token"),
+            field(2, b"synthetic"),
+            field(2, b"other"),
+        ]
+        .concat(),
+    ] {
+        let record = [vec![16, 3], field(6, &param)].concat();
+        assert!(ProceedResponse::decode(Bytes::from(field(1, &record))).is_err());
+    }
+    let param = [field(1, b"future"), field(2, b"synthetic")].concat();
+    let record = field(6, &param).repeat(65);
+    assert!(ProceedResponse::decode(Bytes::from(field(1, &record))).is_err());
+}
+
+#[test]
 fn rejects_cached_proof_without_expiry_before_followup_can_use_it() {
     // Both services put cached DroidGuard in field4. An empty cache is unusable.
     assert!(SyncResponse::decode(Bytes::from_static(&[34, 0])).is_err());
