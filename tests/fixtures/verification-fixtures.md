@@ -21,8 +21,18 @@ code field1 and message field3; field2 is retained without assigning a meaning.
   the per-record failure remains visible.
 
 Challenge-container fields3/4 are unknown and are **not** interpreted as TTL or flags.
-No Sync/Proceed request is encoded or sent. No returned state/token is validated as
-proof that a phone number is verified.
+No returned state/token is validated as proof that a phone number is verified.
+
+- `sync-request.bin`: independent initial request encoding, synthetic caller/SIM
+  facts and proof, zero slot explicitly present, one IMSI request and SHA-256
+  caller-session/IMSI nonce. Header version is GMS version code divided by 1000.
+- `proceed-request.bin`: original `verification-pending.bin` preserved byte for
+  byte, opaque context unchanged, full synthetic carrier JSON in
+  ChallengeResponse9 -> TS43.temporary3 -> **TemporaryResponse.string2**,
+  two synthetic history strings in TS43 field5 and a synthetic cached proof.
+  Original GMS `joty` declares its only string as field2; field1 was an earlier
+  reconstruction error. These request fixtures use the original descriptor,
+  not a round trip through the Rust encoder under test.
 
 Decoder limits are 256 KiB per response, 64 result records/operation targets,
 16 KiB per text/context value, and 8 KiB for the HTTPS carrier URL. Singular known

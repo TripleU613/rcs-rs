@@ -8,7 +8,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-mod wire;
+pub(crate) mod wire;
 
 pub struct ConsentResponse {
     pub legacy: Option<ConsentRecord>,
@@ -47,24 +47,7 @@ impl ConsentResponse {
         {
             return Err(Error::InvalidResponse("duplicate RCS consent rows"));
         }
-        let cached_droidguard = response
-            .cached_dg
-            .map(|cache| {
-                let expiry = cache
-                    .expires
-                    .ok_or(Error::InvalidResponse("cached token expiry missing"))?;
-                if !(0..=253_402_300_799).contains(&expiry.seconds)
-                    || !(0..1_000_000_000).contains(&expiry.nanos)
-                {
-                    return Err(Error::InvalidResponse("invalid cached token expiry"));
-                }
-                let expires_at = UNIX_EPOCH
-                    .checked_add(Duration::new(expiry.seconds as u64, expiry.nanos as u32))
-                    .ok_or(Error::InvalidResponse("invalid cached token expiry"))?;
-                CachedToken::new(cache.token, expires_at)
-                    .map_err(|_| Error::InvalidResponse("invalid cached token"))
-            })
-            .transpose()?;
+        let cached_droidguard = response.cached_dg.map(cached_token).transpose()?;
         Ok(Self {
             legacy: response.consent.map(|record| ConsentRecord {
                 state: record.state,
@@ -97,6 +80,22 @@ impl ConsentResponse {
     pub fn raw_protobuf(&self) -> &[u8] {
         &self.raw
     }
+}
+
+pub(crate) fn cached_token(cache: wire::DroidGuardCache) -> Result<CachedToken, Error> {
+    let expiry = cache
+        .expires
+        .ok_or(Error::InvalidResponse("cached token expiry missing"))?;
+    if !(0..=253_402_300_799).contains(&expiry.seconds)
+        || !(0..1_000_000_000).contains(&expiry.nanos)
+    {
+        return Err(Error::InvalidResponse("invalid cached token expiry"));
+    }
+    let expires_at = UNIX_EPOCH
+        .checked_add(Duration::new(expiry.seconds as u64, expiry.nanos as u32))
+        .ok_or(Error::InvalidResponse("invalid cached token expiry"))?;
+    CachedToken::new(cache.token, expires_at)
+        .map_err(|_| Error::InvalidResponse("invalid cached token"))
 }
 
 impl fmt::Debug for ConsentResponse {
@@ -158,7 +157,7 @@ pub struct BuildInfo {
     pub fingerprint: Option<String>,
 }
 
-/// A real `constellation_verify` result bound to this IID and `rpc=getConsent`,
+/// A real `constellation_verify` result bound to this IID and the requested RPC,
 /// or a backend-issued unexpired token. This module does not produce attestation.
 pub enum Attestation {
     RawDroidGuard(String),
@@ -191,10 +190,10 @@ impl fmt::Debug for ConsentRequest {
     }
 }
 
-fn make_request(
+pub(crate) fn make_header(
     input: &ConsentRequest,
     session_id: &str,
-) -> Result<wire::GetConsentRequest, Error> {
+) -> Result<wire::RequestHeader, Error> {
     fn text(value: &str, limit: usize, name: &'static str) -> Result<(), Error> {
         if value.is_empty() || value.len() > limit || value.chars().any(char::is_control) {
             return Err(Error::InvalidInput(name));
@@ -257,32 +256,40 @@ fn make_request(
             }
         }
     };
+    Ok(wire::RequestHeader {
+        info: Some(wire::ClientInfo {
+            device: Some(wire::DeviceId {
+                iid_token: input.iid_token.clone(),
+                device_android_id: input.checkin_android_id,
+                user_serial: input.user_serial,
+                user_android_id: input.checkin_android_id,
+            }),
+            public_key: input.public_key_der.clone(),
+            locale: input.build.locale.clone(),
+            version,
+            version_name: input.build.gms_version_name.clone(),
+            sdk: input.build.android_sdk,
+            signals: Some(signals),
+            model: input.build.model.clone(),
+            manufacturer: input.build.manufacturer.clone(),
+            fingerprint: input.build.fingerprint.clone().unwrap_or_default(),
+        }),
+        session_id: session_id.into(),
+        trigger: Some(wire::Trigger { reason: 7 }),
+    })
+}
+
+fn make_request(
+    input: &ConsentRequest,
+    session_id: &str,
+) -> Result<wire::GetConsentRequest, Error> {
+    let header = make_header(input, session_id)?;
     Ok(wire::GetConsentRequest {
         device: Some(wire::DeviceId {
             iid_token: input.iid_token.clone(),
             ..Default::default()
         }),
-        header: Some(wire::RequestHeader {
-            info: Some(wire::ClientInfo {
-                device: Some(wire::DeviceId {
-                    iid_token: input.iid_token.clone(),
-                    device_android_id: input.checkin_android_id,
-                    user_serial: input.user_serial,
-                    user_android_id: input.checkin_android_id,
-                }),
-                public_key: input.public_key_der.clone(),
-                locale: input.build.locale.clone(),
-                version,
-                version_name: input.build.gms_version_name.clone(),
-                sdk: input.build.android_sdk,
-                signals: Some(signals),
-                model: input.build.model.clone(),
-                manufacturer: input.build.manufacturer.clone(),
-                fingerprint: input.build.fingerprint.clone().unwrap_or_default(),
-            }),
-            session_id: session_id.into(),
-            trigger: Some(wire::Trigger { reason: 7 }),
-        }),
+        header: Some(header),
         params: vec![
             wire::Param {
                 name: "required_consumer_consent".into(),
@@ -303,6 +310,7 @@ fn make_request(
 }
 
 /// Make one TLS-protected GetConsent call using genuine caller-supplied inputs.
+/// A raw proof must be bound to `rpc=getConsent`.
 /// Does not start Sync/SIM verification, generate attestation, or retry server failures.
 pub async fn get_consent(
     metadata: &crate::ClientMetadata,

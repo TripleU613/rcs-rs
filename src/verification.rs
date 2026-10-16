@@ -1,12 +1,14 @@
-//! Decoder-only views of Sync/Proceed responses. No RPC, SIM authentication,
-//! Proceed encoding, number verification, or token validation is performed.
+//! Initial number-verification requests and bounded response views.
+//! SIM authentication, signed follow-ups and token validation remain platform work.
 
 use crate::Error;
 use bytes::Bytes;
 use prost::Message;
 use std::{collections::HashSet, fmt};
 
+mod request;
 mod wire;
+pub use request::{InitialSync, OperatorInfo, TelephonyInfo, initial_sync, proceed_ts43_unsigned};
 
 const MAX_MESSAGE: usize = 256 * 1024;
 const MAX_TEXT: usize = 16 * 1024;
@@ -15,10 +17,14 @@ const MAX_RECORDS: usize = 64;
 /// Decoded records retain service-level failures even when the outer gRPC status is OK.
 pub struct SyncResponse {
     pub results: Vec<VerificationResult>,
+    pub cached_droidguard: Option<crate::consent::CachedToken>,
+    key_status: Option<i32>,
     raw: Bytes,
 }
 pub struct ProceedResponse {
     pub verification: Option<Verification>,
+    pub cached_droidguard: Option<crate::consent::CachedToken>,
+    key_status: Option<i32>,
     raw: Bytes,
 }
 #[derive(Debug)]
@@ -36,6 +42,7 @@ pub struct Verification {
     pub ts43: Option<Ts43Challenge>,
     raw: Bytes,
     association: Option<Bytes>,
+    key_status: Option<i32>,
 }
 /// Custom service status: code field1, message field3. Field2 remains opaque in raw bytes.
 pub struct RecordStatus {
@@ -95,6 +102,8 @@ impl SyncResponse {
     pub fn decode(raw: Bytes) -> Result<Self, Error> {
         bounded(&raw, MAX_MESSAGE)?;
         let response: wire::SyncResponse = decode(&raw)?;
+        let (key_status, cached_droidguard) =
+            response_controls(response.headers, response.cached_tokens)?;
         if response.results.len() > MAX_RECORDS {
             return Err(Error::InvalidResponse("too many verification results"));
         }
@@ -103,9 +112,12 @@ impl SyncResponse {
         let mut verifications = HashSet::new();
         for bytes in response.results {
             let result: wire::Result = decode(&bytes)?;
-            let verification = one(result.verifications)?
+            let mut verification = one(result.verifications)?
                 .map(Verification::decode)
                 .transpose()?;
+            if let Some(record) = &mut verification {
+                record.key_status = key_status;
+            }
             let status = one(result.statuses)?
                 .map(RecordStatus::decode)
                 .transpose()?;
@@ -127,7 +139,15 @@ impl SyncResponse {
                 status,
             });
         }
-        Ok(Self { results, raw })
+        Ok(Self {
+            results,
+            cached_droidguard,
+            key_status,
+            raw,
+        })
+    }
+    pub fn public_key_status(&self) -> Option<i32> {
+        self.key_status
     }
     /// Original response bytes, including private identifiers and unknown fields.
     pub fn raw_protobuf(&self) -> &[u8] {
@@ -138,10 +158,23 @@ impl ProceedResponse {
     pub fn decode(raw: Bytes) -> Result<Self, Error> {
         bounded(&raw, MAX_MESSAGE)?;
         let response: wire::ProceedResponse = decode(&raw)?;
-        let verification = one(response.verifications)?
+        let (key_status, cached_droidguard) =
+            response_controls(response.headers, response.cached_tokens)?;
+        let mut verification = one(response.verifications)?
             .map(Verification::decode)
             .transpose()?;
-        Ok(Self { verification, raw })
+        if let Some(record) = &mut verification {
+            record.key_status = key_status;
+        }
+        Ok(Self {
+            verification,
+            cached_droidguard,
+            key_status,
+            raw,
+        })
+    }
+    pub fn public_key_status(&self) -> Option<i32> {
+        self.key_status
     }
     /// Original response bytes, including private identifiers and unknown fields.
     pub fn raw_protobuf(&self) -> &[u8] {
@@ -204,10 +237,11 @@ impl Verification {
             ts43,
             raw,
             association,
+            key_status: None,
         })
     }
     /// Exact embedded Verification, including unknown fields and challenge bytes.
-    /// Keep private; this is the original record needed by a future Proceed encoder.
+    /// Keep private; the Proceed encoder submits this original record unchanged.
     pub fn raw_protobuf(&self) -> &[u8] {
         &self.raw
     }
@@ -388,6 +422,31 @@ fn bounded(raw: &[u8], limit: usize) -> Result<(), Error> {
         ));
     }
     Ok(())
+}
+
+fn response_controls(
+    headers: Vec<Bytes>,
+    caches: Vec<Bytes>,
+) -> Result<(Option<i32>, Option<crate::consent::CachedToken>), Error> {
+    let status = if let Some(bytes) = one(headers)? {
+        let header: wire::ResponseHeader = decode(&bytes)?;
+        if let Some(bytes) = one(header.updates)? {
+            let _: wire::Integer1 = decode(&bytes)?;
+            let update: wire::ClientInfoUpdate = decode(&bytes)?;
+            one(update.statuses)?
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    let cache = one(caches)?
+        .map(|bytes| {
+            let cache: crate::consent::wire::DroidGuardCache = decode(&bytes)?;
+            crate::consent::cached_token(cache)
+        })
+        .transpose()?;
+    Ok((status, cache))
 }
 fn decode<M: Message + Default>(raw: &[u8]) -> Result<M, Error> {
     bounded(raw, MAX_MESSAGE)?;

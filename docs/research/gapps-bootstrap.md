@@ -253,6 +253,9 @@ result for EAP-AKA, then acquire the temporary token. `Proceed` must carry the
 full carrier JSON response, the original verification and the exact opaque
 challenge context, preserving unknown fields. The subsequent carrier exchange
 is described below; a selected challenge alone does not establish verification.
+The temporary response wrapper is `joty`: its only string is **field 2**, as
+established by its original generated descriptor. It is nested under `jotz`
+field 3; the context is `jotz` field 1 and HTTP history is repeated string field 5.
 
 No EC-key acknowledgement was present in the response header. The reference
 client leaves the first follow-up unsigned until it receives that acknowledgement.
@@ -315,13 +318,15 @@ TLS 1.2 with `AES256-GCM-SHA384`, a static-RSA cipher unavailable in rustls.
 A failed Python connection does not establish a TLS-version-only problem.
 An Android platform transport is therefore relevant to this carrier integration.
 
-**Observed live:** `Proceed` accepted the reconstructed RPC envelope with outer
-gRPC status 0, but returned verification state `NONE` and reason `FAILED` (2).
-It received the original verification, the unchanged opaque context, the full
-carrier JSON and a valid cached DroidGuard token. The carrier token was still
-within its declared validity window. The older challenge had been held during
-inspection; challenge expiry remains a hypothesis, not an established cause.
-No verified-number credential was returned.
+**Observed live:** the earlier `Proceed` RPC returned outer gRPC status 0, but
+verification state `NONE` and reason `FAILED` (2). A later independent review
+found that this probe put the full carrier JSON in `joty` field **1**, whereas
+the original descriptor requires **2**. It therefore does not establish that
+Google received the carrier JSON as a known field. The original verification
+and context were preserved, and the carrier token had not expired; the older
+challenge had also been held during inspection. Incorrect payload tagging and
+challenge age are distinct possible causes, neither isolated by that attempt.
+The original capture is retained unchanged. No verified-number credential was returned.
 
 Later fresh `Sync` attempts returned reason `THROTTLED` (1), with per-record
 code 8 and a message explaining that too many recent verifications or attempts
@@ -336,6 +341,21 @@ starting at 60 seconds and capped at 86,400 seconds; that client schedule does
 not reveal the server quota reset time. Verification probes were stopped after
 the later retry remained throttled. No IID or SIM identity was changed to evade
 the limit.
+
+The Rust library now builds initial `Sync` and unsigned TS43 `Proceed` requests,
+reusing the existing consent header validation. Independent synthetic wire
+fixtures and real localhost HTTP2/gRPC tests check exact payloads, metadata,
+single-call behavior and failure preservation. Review corrected the `joty`
+field tag and an example bug where an expired captured cache could replace a
+fresh proof. Signed ClientAuth, carrier transport and SIM operations remain
+outside these Rust request functions.
+
+At **07:02:33 UTC on 2026-10-16**, after roughly 33 minutes without another
+verification attempt, the Rust `Sync` call returned state 1, reason 1 and record
+code 8 (`THROTTLED`). It issued no pending challenge. The timed driver stopped
+before carrier authentication or `Proceed`; the corrected payload still lacks
+a fresh live acceptance test. Temporary root debugging and the USB forward
+were removed afterward, with USB ADB retained and stay-awake restored to 0.
 
 Static `brxd` evidence also establishes that HTTP history is an optional
 challenge-response field, enabled by default. Whether the backend needs it for

@@ -1,6 +1,13 @@
 use super::*;
 
 #[test]
+fn rejects_cached_proof_without_expiry_before_followup_can_use_it() {
+    // Both services put cached DroidGuard in field4. An empty cache is unusable.
+    assert!(SyncResponse::decode(Bytes::from_static(&[34, 0])).is_err());
+    assert!(ProceedResponse::decode(Bytes::from_static(&[34, 0])).is_err());
+}
+
+#[test]
 fn pending_ts43_keeps_exact_verification_context_and_per_record_status() {
     let bytes = Bytes::from_static(include_bytes!(
         "../../tests/fixtures/verification-sync-pending.bin"
@@ -258,4 +265,26 @@ fn unknown_outer_fields_allow_bounded_large_capture_and_status_message_stays_los
         Some("synthetic-private\nsecond line")
     );
     assert!(!format!("{:?}", response.results[0]).contains("synthetic-private"));
+}
+
+#[test]
+fn keeps_cached_proof_and_key_update_without_disclosing_private_values() {
+    // Independent cache {token1:"synthetic-cache", expiry2:{seconds1:2000000000}}.
+    let cache = [
+        10, 15, 115, 121, 110, 116, 104, 101, 116, 105, 99, 45, 99, 97, 99, 104, 101, 18, 6, 8,
+        128, 168, 214, 185, 7,
+    ];
+    let mut sync = include_bytes!("../../tests/fixtures/verification-sync-pending.bin").to_vec();
+    sync.extend(field(4, &cache));
+    let response = SyncResponse::decode(Bytes::from(sync)).unwrap();
+    assert_eq!(response.public_key_status(), None);
+    assert_eq!(
+        response.cached_droidguard.as_ref().unwrap().value(),
+        "synthetic-cache"
+    );
+    assert!(!format!("{response:?}").contains("synthetic-cache"));
+    // Proceed header2 -> keyupdate1 -> status1=1.
+    let response = ProceedResponse::decode(Bytes::from_static(&[18, 4, 10, 2, 8, 1])).unwrap();
+    assert_eq!(response.public_key_status(), Some(1));
+    assert!(SyncResponse::decode(Bytes::from_static(&[26, 4, 10, 2, 8, 1, 26, 0])).is_err());
 }

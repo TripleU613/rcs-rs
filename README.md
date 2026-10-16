@@ -11,7 +11,8 @@ The Rust ACS client obtains a real DroidGuard challenge and retains its session
 cookie. Rust consent lookup also works with genuine caller-supplied platform
 identity/proof inputs. Independent probes completed real SIM authentication and
 obtained a carrier temporary token. ACS currently returns an invalid configuration
-without subscriber credentials; Google number verification is throttled.
+without subscriber credentials; the Rust number-verification RPC also reaches
+Google, whose verification record remains throttled.
 Registration and Google Messages interoperability remain unverified.
 
 Success means this library sends a text to current Google Messages and receives
@@ -26,8 +27,9 @@ and the [bootstrap design](docs/superpowers/specs/2026-10-16-rcs-bootstrap-desig
 [rust-rcs-client](https://github.com/Hirohumi/rust-rcs-client) already implements
 auto-configuration and messaging, with
 [rust-rcs-core](https://github.com/Hirohumi/rust-rcs-core) underneath it. Evaluate
-these before writing another SIP/MSRP stack. Their upstream claims are not
-verification of Tello or Google Messages compatibility.
+these before writing another SIP/MSRP stack. The [pinned audit](docs/research/upstream.md)
+found working parser/linkage paths, secret logging and incomplete platform support.
+Their upstream claims are not verification of Tello or Google Messages compatibility.
 
 ## Development data
 
@@ -66,6 +68,23 @@ protobuf captures offline. They expose TS43 challenges and per-record failures,
 retain exact verification/context bytes, and redact private fields in diagnostics.
 They do not send verification requests or validate returned tokens. The decoder
 has also been checked against the private pending, failed and throttled captures.
+
+`verification::initial_sync` sends one initial verification request using genuine
+SIM/caller facts. `verification::proceed_ts43_unsigned` submits a genuine full
+carrier JSON response while preserving the original verification/context bytes.
+It rejects public-key updates because signed follow-ups are not implemented.
+Neither function retries automatically or treats outer RPC success as verification.
+
+```sh
+cargo run --example verify_number -- sync /private/session.json /private/new-response.pb
+cargo run --example verify_number -- proceed /private/session.json /private/new-proceed.pb
+```
+
+The example documents the session JSON fields in its source. It reserves a new
+mode-600 response file, never overwrites a capture, and may leave an empty file on
+failure. A raw DroidGuard proof must match the requested RPC; a valid cached token
+can be reused. Carrier EAP-AKA/HTTP execution still uses private research tooling,
+not this library. The corrected Proceed payload has not yet passed live verification.
 
 `cargo test --all-targets` runs the synthetic protocol and localhost transport
 checks. Formatting and strict Clippy also pass. No live credentials are needed

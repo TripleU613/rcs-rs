@@ -22,6 +22,10 @@ singular_integer!(Integer12, "12");
 pub(super) struct SyncResponse {
     #[prost(bytes = "bytes", repeated, tag = "1")]
     pub results: Vec<bytes::Bytes>,
+    #[prost(bytes = "bytes", repeated, tag = "3")]
+    pub headers: Vec<bytes::Bytes>,
+    #[prost(bytes = "bytes", repeated, tag = "4")]
+    pub cached_tokens: Vec<bytes::Bytes>,
 }
 impl std::fmt::Debug for SyncResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -34,6 +38,22 @@ impl std::fmt::Debug for SyncResponse {
 pub(super) struct ProceedResponse {
     #[prost(bytes = "bytes", repeated, tag = "1")]
     pub verifications: Vec<bytes::Bytes>,
+    #[prost(bytes = "bytes", repeated, tag = "2")]
+    pub headers: Vec<bytes::Bytes>,
+    #[prost(bytes = "bytes", repeated, tag = "4")]
+    pub cached_tokens: Vec<bytes::Bytes>,
+}
+
+#[derive(Clone, PartialEq, prost::Message)]
+pub(super) struct ResponseHeader {
+    #[prost(bytes = "bytes", repeated, tag = "1")]
+    pub updates: Vec<bytes::Bytes>,
+}
+
+#[derive(Clone, PartialEq, prost::Message)]
+pub(super) struct ClientInfoUpdate {
+    #[prost(int32, packed = "false", repeated, tag = "1")]
+    pub statuses: Vec<i32>,
 }
 impl std::fmt::Debug for ProceedResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

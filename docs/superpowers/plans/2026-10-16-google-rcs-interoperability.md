@@ -53,11 +53,11 @@ reliable app integration are additional acceptance gates.
 
 As of 2026-10-16:
 
-- This repository contains documentation only; there is no implemented engine here.
-- The inspected 2022 Google Messages APK stops at a local missing-ACS configuration check. It does not establish present-day service admission rules.
+- Rust discovery, initial ACS challenge handling and consumer consent lookup work against the live services. Initial Sync and unsigned TS43 Proceed are implemented with synthetic wire/transport checks. A live Rust Sync still returns a throttled verification record; there is no admitted session or messaging engine.
+- Current Messages build 324451063 and original GMS 26.37.37 are now the main bootstrap references. The 2022 APK is historical evidence only. [Recovered behavior](../../research/gapps-bootstrap.md) records real SIM authentication, carrier temporary tokens, the corrected Proceed field tag and unresolved admission.
 - Google documents interconnection between carrier RCS systems through Jibe Hub [1]. That makes a carrier route a credible approach; it does not prove Tello admits this client.
 - Android's single-registration APIs require privileged installation and the default SMS role. Capability exchange and restricted network access also have permission constraints [2]. A normal SMS role grant is insufficient for that route.
-- `rust-rcs-client` revision `720b42fad99d6d1f71dd89dcb11293245a0960d7`, with sibling `rust-rcs-core` revision `f2f351c467ba6f2aa9a786647845b6ad21f300c5`, passed `cargo check` on this Linux machine with warnings. This was an isolated source evaluation, not a test run or a live interoperability check.
+- The pinned upstream revisions passed library test builds (client: zero tests; core: four tests) and a separate four-test consumer harness checked actual host linkage, WAP parsing, certificate loading, Linux stubs and synthetic credential logging. See the [bounded reuse audit](../../research/upstream.md); this does not establish live interoperability.
 - `RcsEngine::send_message` hardcodes `recipient_supports_one_to_one = false` and `recipient_supports_standalone = true`. Session code exists, but the send decision does not discover actual recipient capabilities [3].
 - The upstream Linux ICC implementation returns no SIM channel. Debug code logs sensitive values, including derived GBA material [4]. Both need attention before using real identities in that stack.
 - GSMA publishes an interoperable MLS-based RCS encryption specification. Google announced cross-platform encrypted RCS rollout in May 2026 [5,6]. An old APK is insufficient as our only encryption reference.
@@ -118,7 +118,7 @@ temporary evaluation clones, build output or dependency caches.
 
 - [x] Inspect provisioning, registration, message dispatch and platform boundaries.
 - [x] Run `cargo check` against both sibling repositories; result: pass with warnings.
-- [ ] Reproduce in an ignored private evaluation directory:
+- [x] Reproduce with the pinned sibling checkouts and private evaluation harness (exact paths/results in `docs/research/upstream.md`):
 
 ```bash
 mkdir -p private/upstream
@@ -130,8 +130,8 @@ cargo check --manifest-path private/upstream/rust-rcs-client/Cargo.toml
 cargo test --manifest-path private/upstream/rust-rcs-client/Cargo.toml --lib
 ```
 
-- [ ] Distinguish no tests from passing behavioral tests. Test linking an actual host, since type checking does not establish platform callback availability.
-- [ ] Audit the paths listed in the source references for raw auth/config/body logs, TLS handling, callback nullability and platform stubs. Record findings with symbols and caller locations.
+- [x] Distinguish no tests from passing behavioral tests. Test linking an actual host, since type checking does not establish platform callback availability.
+- [x] Audit the paths listed in the source references for raw auth/config/body logs, TLS handling, callback nullability and platform stubs. Record findings with symbols and caller locations.
 - [ ] Suppress/remove sensitive protocol logs before any live evaluation. Pin this with synthetic sentinel credentials and assert that captured output lacks each sentinel.
 - [ ] Preserve licenses; commit the baseline decision and any narrowly necessary patches. Do not bulk-fix unrelated warnings.
 
