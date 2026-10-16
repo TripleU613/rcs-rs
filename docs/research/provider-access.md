@@ -108,6 +108,47 @@ inferred from member order. The private summary is
 `constellation-static/upi-credential-acs-consumer-groundtruth.json`.
 There is no successful live UPI provisioning capture yet.
 
+## Rust probe implementation
+
+`AcsSession::upi_challenge(&UpiParameters)` requests `goog-mls-upi`, captures the
+nonce/cookie and generates a fresh UUID salt. The caller supplies actual client
+metadata, full selected-SIM/device identifiers, logical caller session, policy,
+eligibility and number credential. Client metadata must already match the
+selected configuration's formatting. This bounded implementation does not
+support alternate carrier identifier encodings.
+
+The returned context provides `private_droidguard_inputs()` for a genuine
+`rcs_provisioning` platform call and `private_mls_signing_input()` for an owned
+participant key. Its `provision` method accepts that platform result and a
+P-256 SPKI public key/DER ECDSA signature, verifies the signature against the
+exact nonce, then consumes the context to send one POST. MLS signature framing
+uses [RFC 9420 SignWithLabel](https://www.rfc-editor.org/rfc/rfc9420.html#section-5.1.2).
+The retained native synthetic reference independently verifies with OpenSSL and
+matches those signing bytes; this does not establish backend acceptance.
+
+One active exchange per `AcsSession` prevents concurrent responses from pairing
+one nonce with another cookie. Overlapping challenge calls fail explicitly; drop
+the context to cancel it. The POST also pins the cookie header used by the proof.
+Tests cover this capture-time exclusion and a later cookie-jar rotation, invalid
+signatures/inputs, exact independent protobuf/hash fixtures, redirect rejection
+and service retry reporting. The code never retries automatically.
+
+Eligibility is an explicit input: unspecified 0, eligible 1, ineligible 2,
+denied 3. Messages reads this per-SIM cached value and updates it from verification
+status; the builder must not infer it merely from nonempty token text. Zero and
+optional IID omission are retained in the wire format. Size caps are local
+resource limits, not recovered server-advertised maxima.
+
+A separate live request during this pass returned HTTP 200 with method
+`goog-mls-upi`, a 36-byte nonce and `JIBE_ACS_COOKIE`. It sent no number credential
+and made no verification RPC. Private evidence is in
+`constellation-static/upi-challenge-attempt01/`. The Rust credential-bearing POST
+has only local coverage until Google number verification supplies a genuine
+credential. DroidGuard generation, participant-key persistence, alternate MLS
+suites, subscription-change cancellation and accepted configuration validation
+remain host/integration work. The application name is caller-supplied; the
+reference client uses Google Messages, and admission of another app is unproven.
+
 ## Android host requirements on this phone
 
 Read-only USB inventory found the normal telephony/IMS feature, but no advertised

@@ -1,7 +1,17 @@
-//! Initial ACS client-authenticity challenge only; no attestation or registration.
+//! ACS challenges and recovered UPI provisioning; no attestation generation or registration.
 use bytes::Bytes;
 use reqwest::cookie::{CookieStore, Jar};
-use std::{fmt, sync::Arc, time::Duration};
+use std::{
+    fmt,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
+};
+
+mod upi;
+pub use upi::{MlsProof, UpiChallenge, UpiParameters};
 
 const AUTH_MEDIA_TYPE: &str = "application/vnd.gsma.cfg-clientauth+xml";
 const AUTH_NS: &str = "urn:gsma:params:xml:ns:cfg:clientauth:req";
@@ -21,6 +31,14 @@ pub struct AcsSession {
     client: reqwest::Client,
     endpoint: reqwest::Url,
     cookies: Arc<Jar>,
+    exchange_active: AtomicBool,
+}
+
+struct ExchangeLease<'a>(&'a AtomicBool);
+impl Drop for ExchangeLease<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
 }
 
 impl fmt::Debug for AcsSession {
@@ -53,7 +71,15 @@ impl AcsSession {
             client,
             endpoint,
             cookies,
+            exchange_active: AtomicBool::new(false),
         })
+    }
+
+    fn begin_exchange(&self) -> Result<ExchangeLease<'_>, Error> {
+        self.exchange_active
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .map_err(|_| Error::InvalidInput("ACS session exchange already active"))?;
+        Ok(ExchangeLease(&self.exchange_active))
     }
 
     pub fn host(&self) -> &str {
@@ -117,7 +143,13 @@ impl AcsSession {
         &self,
         parameters: &ClientParameters<'_>,
     ) -> Result<Response, Error> {
+        let _exchange = self.begin_exchange()?;
         let request = self.initial_request(parameters)?;
+        let (content_type, body) = self.response_body(request).await?;
+        parse_response(&content_type, &body)
+    }
+
+    async fn response_body(&self, request: reqwest::Request) -> Result<(String, Vec<u8>), Error> {
         let mut response = self
             .client
             .execute(request)
@@ -158,7 +190,7 @@ impl AcsSession {
             }
             body.extend_from_slice(&chunk);
         }
-        parse_response(&content_type, &body)
+        Ok((content_type, body))
     }
 }
 
@@ -258,6 +290,14 @@ impl fmt::Display for Error {
 impl std::error::Error for Error {}
 
 pub fn parse_response(content_type: &str, body: &[u8]) -> Result<Response, Error> {
+    parse_response_for_method(content_type, body, "goog-droidguard")
+}
+
+fn parse_response_for_method(
+    content_type: &str,
+    body: &[u8],
+    method_name: &str,
+) -> Result<Response, Error> {
     if body.len() > MAX_BODY {
         return Err(Error::BodyTooLarge);
     }
@@ -311,7 +351,7 @@ pub fn parse_response(content_type: &str, body: &[u8]) -> Result<Response, Error
         return Err(Error::InvalidChallenge("unexpected mixed content"));
     }
     if root.children().filter(|n| n.is_element()).count() != 2
-        || method.attribute("name") != Some("goog-droidguard")
+        || method.attribute("name") != Some(method_name)
     {
         return Err(Error::InvalidChallenge("method"));
     }
@@ -367,6 +407,18 @@ mod tests {
     use super::*;
     const XML: &str = include_str!("../tests/fixtures/clientauth.xml");
 
+    #[test]
+    fn upi_challenge_requires_the_selected_method_without_changing_the_legacy_parser() {
+        let xml = XML.replace("goog-droidguard", "goog-mls-upi");
+        let response =
+            parse_response_for_method(AUTH_MEDIA_TYPE, xml.as_bytes(), "goog-mls-upi").unwrap();
+        let Response::Challenge(challenge) = response else {
+            panic!("expected UPI challenge")
+        };
+        assert_eq!(challenge.nonce(), "synthetic-nonce");
+        assert!(parse_response(AUTH_MEDIA_TYPE, xml.as_bytes()).is_err());
+    }
+
     fn parameters() -> ClientParameters<'static> {
         ClientParameters {
             terminal_vendor: "Example",
@@ -379,7 +431,7 @@ mod tests {
         }
     }
 
-    async fn mock_session(
+    pub(super) async fn mock_session(
         replies: Vec<String>,
     ) -> (AcsSession, tokio::task::JoinHandle<Vec<String>>) {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -391,12 +443,27 @@ mod tests {
             for reply in replies {
                 let (mut stream, _) = listener.accept().await.unwrap();
                 let mut request = Vec::new();
-                while !request.ends_with(b"\r\n\r\n") {
+                loop {
+                    if let Some(end) = request.windows(4).position(|w| w == b"\r\n\r\n") {
+                        let headers = std::str::from_utf8(&request[..end]).unwrap();
+                        let length = headers
+                            .lines()
+                            .find_map(|line| {
+                                let (name, value) = line.split_once(':')?;
+                                name.eq_ignore_ascii_case("content-length")
+                                    .then(|| value.trim().parse::<usize>().unwrap())
+                            })
+                            .unwrap_or(0);
+                        assert!(length <= 256 * 1024);
+                        if request.len() >= end + 4 + length {
+                            break;
+                        }
+                    }
                     let mut chunk = [0; 1024];
                     let n = stream.read(&mut chunk).await.unwrap();
                     assert_ne!(n, 0);
                     request.extend_from_slice(&chunk[..n]);
-                    assert!(request.len() < 8192);
+                    assert!(request.len() <= 256 * 1024 + 8192);
                 }
                 requests.push(String::from_utf8(request).unwrap());
                 let _ = stream.write_all(reply.as_bytes()).await;
@@ -415,12 +482,13 @@ mod tests {
                 client,
                 endpoint,
                 cookies,
+                exchange_active: AtomicBool::new(false),
             },
             server,
         )
     }
 
-    fn reply(status: u16, headers: &str, body: &str) -> String {
+    pub(super) fn reply(status: u16, headers: &str, body: &str) -> String {
         format!(
             "HTTP/1.1 {status} Test\r\nConnection: close\r\nContent-Length: {}\r\n{headers}\r\n{body}",
             body.len()

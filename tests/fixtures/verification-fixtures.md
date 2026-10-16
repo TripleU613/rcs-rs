@@ -41,3 +41,15 @@ duplicate verification/association detection compares exact bytes only; it canno
 normalize reordered protobuf fields or establish semantic identity of unknown data.
 Unknown fields are retained in full original response/Verification/status/operation
 bytes, rather than being reconstructed from the typed subset.
+
+UPI provisioning fixtures use independently encoded synthetic inputs:
+
+- `upi-provision-body.bin`: eligibility field1 explicitly 1, proof field2;
+  proof version1, synthetic DG/salt, IMSI4, IMEI5, number credential7, cookie8,
+  IID9 and logical session10. Optional MSISDN6 is absent. Sending uses standard
+  padded Base64 of these exact bytes, with no line breaks.
+- `upi-droidguard-inputs.json`: independent Python hashlib SHA-384 vectors for
+  exact UTF-8 `value + salt`; the application name remains literal in version1.
+- `upi-mls-signing-input.bin`: independently framed MLS label and synthetic UTF-8
+  nonce. Tests sign this input with a fresh owned key and require the request
+  validator to reject a signature when the context's nonce changes.

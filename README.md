@@ -89,6 +89,15 @@ failure. A raw DroidGuard proof must match the requested RPC; a valid cached tok
 can be reused. Carrier EAP-AKA/HTTP execution still uses private research tooling,
 not this library. The corrected Proceed payload has not yet passed live verification.
 
+`AcsSession::upi_challenge` implements the recovered UPI challenge request.
+Its context exposes the private DroidGuard input map and MLS signing bytes.
+Supply a genuine platform result and an owned P-256 participant signature to
+`UpiChallenge::provision`; it verifies the signature and sends one `/provision`
+request. The context holds exclusive session access until consumed or dropped.
+This path has synthetic wire and localhost transport coverage. A separate live
+UPI challenge probe obtained a nonce/cookie; credential-bearing UPI provisioning
+and service registration remain unverified.
+
 `cargo test --all-targets` runs the synthetic protocol and localhost transport
 checks. Formatting and strict Clippy also pass. No live credentials are needed
 for these tests.
