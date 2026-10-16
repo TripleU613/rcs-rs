@@ -15,8 +15,8 @@ That independent deployment remains unproven.
 The Rust ACS client obtains a real DroidGuard challenge and retains its session
 cookie. Rust consent lookup also works with genuine caller-supplied platform
 identity/proof inputs. Independent probes completed real SIM authentication and
-obtained a carrier temporary token. ACS currently returns an invalid configuration
-without subscriber credentials; the Rust number-verification RPC also reaches
+obtained a carrier temporary token. That Google-specific ACS path returns an invalid
+configuration without subscriber credentials; the Rust number-verification RPC also reaches
 Google, whose verification record remains throttled.
 Discovery now includes an optional actual installed GMS version. A controlled
 comparison found that omitting it hid the direct carrier-authentication route;
@@ -26,6 +26,10 @@ but currently returns no verified-number records.
 Registration and Google Messages interoperability remain unverified.
 The [ordinary-client admission record](docs/research/ordinary-client.md) tracks
 own-APK permissions and backend checks separately from the reference-client work.
+An own-APK cellular probe reached the standard carrier ACS and, with a temporary
+identifier app-op lab grant, received a provisioning body. Its XML is unfinished
+and its profile selects SIM AKA, the IMS APN and single registration; this does
+not establish a usable session or ordinary-app support for those operations.
 
 Success means this library sends a text to current Google Messages and receives
 a reply over **verified RCS**, independently of Google Messages on the sending
