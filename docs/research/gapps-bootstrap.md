@@ -95,8 +95,10 @@ after `Probe::with_gms_version` was added, independently obtained UPI raw 3 and
 direct TS43 support. Thus the GMS entry causes the observed routing difference
 in these requests; this is not evidence of subscriber admission. Private captures
 are in `runtime/route-audit-20261016/` and `runtime/route-audit-gms-isolation/`.
-GSF was held zero, not substituted with microG's checkin ID: a read-only provider
-query returned no Android ID. This is not complete native-request parity.
+GSF was held zero, not substituted with microG's checkin ID. The earlier
+read-only lookup in the Phone caller context returned no ID; section 13 records
+why that did not establish the actual Messages value. This comparison alone
+was not complete native-request parity.
 
 UPI's enum differs from the RCS-enabled enum. `gefi.a` maps raw 1 to internal 3,
 which `ddml` names DISABLED; raw 3 maps to ENABLED_WITHOUT_ACS_FALLBACK. Earlier
@@ -521,10 +523,10 @@ incomplete request. Section 1 records the controlled comparison: adding the
 actual installed GMS package/version enables direct TS43 and supplies its
 entitlement endpoint. A separate type-3 policy lookup returns
 `upi-carrier-tos-ts43` for that profile; the minimal profile instead receives
-`upi-mo-strict-policy-mt-priority`. The selected policy is copied verbatim to
-`supported_provisioning_types`.
+`upi-mo-strict-policy-mt-priority`. UPI and legacy builders copy this policy to
+`supported_provisioning_types`; the direct TS43 builders omit that header.
 
-**Newest direct test:** attempt05 used the newly advertised endpoint, realm
+**Direct test with corrected discovery:** attempt05 used the newly advertised endpoint, realm
 `nai.epc`, entitlement version `12.0`, fresh real EAP-AKA and an `ap2014`
 AcquireTemporaryToken operation. Its ACS exchange included the selected policy,
 genuine challenge-bound version-2 platform proof and a fresh owned participant
@@ -556,6 +558,17 @@ the tested direct request. Fresh challenges/proofs and the phone HTTP stack
 also changed, so this is not a byte-identical IP-only experiment. No UPI
 verification RPC or identity reset was performed. Private evidence:
 `constellation-static/acs-ts43-cellular-attempt01/`.
+
+**Subsequent header correction:** a whole-APK reference search found that
+`ejuz.d` is the sole policy-header setter, called by eight UPI/legacy request
+builders but neither `ejts.j` nor `ejwd.j`. The direct common HTTP and MLS
+builders do not inject it later. Attempts05 and cellular01 therefore carried
+an extra header. Attempt06 removed it from both GET and POST, with fresh real
+carrier authentication, temporary token, challenge and platform-generated
+version-2 proof. It again returned HTTP 200, 453 bytes, version 0, validity
+86400, unspecified invalid reason and zero APPLICATION entries. The fix improves
+request parity; it did not resolve the tested rejection. No UPI number RPC was
+made. Private capture: `constellation-static/acs-ts43-attempt06/`.
 
 ## 10. Legacy IMSI activation comparison
 
@@ -592,6 +605,113 @@ metadata, proof admission, subscription eligibility or another server check
 caused the invalid configuration. Private evidence:
 `constellation-static/acs-legacy-cellular-attempt01/`.
 
+## 11. Native encoder and proof diagnostics
+
+An offline runtime comparison used the installed current Messages classes with
+retained owned test inputs. It made no activation request:
+
+- `ejtc.o()` produced the same nine version-2 binding entries and hashes as the
+  host implementation. `ejtc.n()` encoded byte-identical `fzaa` proof bytes.
+- `ekrn.c`, `ekow.a`, channel and locale matched the host's client version,
+  User-Agent, channel and language.
+- Native `ekcb` query assembly matched every decoded host query parameter using
+  the same supplied profile, actual owned identifiers and an empty configuration
+  version/state. No `ejuz` instance was found in the heap, so this check does
+  **not** establish live configuration-provider parity or successful routing.
+
+The independent source audit found that the probe's `efxm.c().a()` defaults
+match the reference's null-extra initialization. The option boolean means
+`reinitializeHandleOnGetSnapshot`; it is not an express/manual selector.
+The one-shot helper and reference cached handle call the same snapshot API.
+`efxp.a` only encodes the result; it does not validate an attestation verdict.
+
+The actual installed microG APK (version 252432034, SHA-256
+`e5e6cba078bdec812b5450599350e5c1a12c8b7438da5bf77123af170f8c1a35`)
+has a generic signed-VM handle/snapshot path for RCS. Its known local error
+fallback is short ASCII beginning `ERROR : `. Unwrapping retained Messages
+results from direct05, cellular01, legacy01 and direct06 yielded binary VM
+snapshots of 23,958–25,863 bytes, none with that error prefix. This rules out
+that known fallback in those captures, not negative server attestation. The
+actual microG embedded/remote runtime preference was not inspected.
+
+Messages `efxe` wraps VM bytes in `fsgj` field 2 with random prefix field 1,
+timing telemetry field 3 and client UUID field 5. `fsgh` telemetry is repeated
+event/elapsed-time pairs; successful local snapshot events are not a Google
+verdict. Source evidence: REA `ev_91341043a64426388fa47e83dedbecfb60e350018630f35f86f980113e5ba262`
+and `ev_04df788fa490c10c348930fa3bfd6886b352d79dffe9c89d6dda00c82113db6e`.
+
+The invalid-config parser (`ekae`) reads the server's literal reason. Its enum
+has a distinct `ATTESTATION_FAILURE` value, but these responses explicitly say
+`UNSPECIFIED`. Client source cannot establish whether the backend discloses every
+attestation failure that way. There is no supported basis to label the present
+failure as definitively attestation, carrier eligibility or a number quota.
+
+The MLS participant proof also supports first-use local P-256 key generation.
+`dmoe -> dbyq -> daai` generates keys when absent, persists them in the local
+settings database and signs the nonce; `dmnx` adds the public key/signature/home
+hint. No prerequisite KDS registration or certificate RPC was found in that
+construction path. Server rules for replacing a previously enrolled key remain
+unknown; no existing application private key was read or replaced.
+
+Private runtime evidence: `constellation-static/native-parity-20261016/`.
+
+## 12. Explicit owned-number diagnostic
+
+`ejvu.c` implements legacy RequestWithMsisdnState. Its query adds `msisdn`, and
+its `msisdn_source` header uses literal values such as `msisdn_source_sim`.
+The default version-1 proof binds the same selected MSISDN string, IMSI, session,
+and any populated cookie/GMS IID. It leaves IMEI unassigned in the proof despite
+its query presence. This differs from both UPI and the initial IMSI-only stage.
+The SIM-number preparation path normalizes when possible and can retain the
+original on failure; strict E164 is not guaranteed by that source alone.
+
+This state is supported, but it is **not** an automatic fallback after the
+captured HTTP-200 version-0 document. The initial IMSI handler sends a parsable
+document to configuration processing; its MSISDN transitions instead include
+a pending explicit-number request or HTTP 403 with the sharing gate satisfied.
+No after-one-IMSI-attempt transition was established. The minimal profile allows
+reading the SIM number (`inhibit_reading_msisdn_from_sim=false`), and its two
+ignored PII formats permit sharing without the seamless-provisioning flag.
+
+**Observed separate experiment:** a single host GET used the actual SIM number
+(already international, matching the carrier token's own line), matching query
+and proof inputs, `msisdn_source_sim`, empty initial Cookie and a fresh
+platform-generated proof. No carrier token or Google number credential was sent
+on this legacy path. ACS returned HTTP 200 and the same 453-byte version-0
+configuration with unspecified invalid reason and zero APPLICATION entries.
+No OTP challenge or accepted subscriber credentials were recovered. The scripts
+made no UPI verification RPC or explicit SMS-send call. Private evidence:
+`constellation-static/acs-legacy-msisdn-attempt01/`.
+
+## 13. GServices ID depends on the caller context
+
+Discovery's field-2 ID comes from the GServices provider, not Android's scoped
+Settings.Secure ID. Current Messages `ellt.b -> auqu.ho -> auqt` case 427 calls
+`eiop.b(contentResolver, "android_id", 0L)`. `eioq/eioz` queries
+`content://com.google.android.gsf.gservices` and parses column 1 as a signed
+decimal Java long. Missing/null/nonnumeric values fall back to zero; this helper
+does not swallow a SecurityException.
+
+The installed microG provider restricts `android_id` to its own UID, recognized
+Google packages and device/profile owners. READ_GSERVICES alone does not grant
+that value. Thus our earlier empty Phone-process lookup was not equivalent to
+the Messages caller. A later read-only invocation of the actual getter inside
+Messages returned a nonzero value, retained privately without changing identity.
+
+No check-in-ID substitution was made: microG stores CheckinResponse.androidId
+in LastCheckinInfo but fills GServices rows separately from response.setting
+entries. Source alone did not prove those IDs were equal.
+
+Two controlled discovery requests used the actual Messages value versus zero,
+holding device/carrier/package inputs constant. Both succeeded, with identical
+onboarding payloads including unknown fields and identical policy bytes; only
+configuration cache validity differed. No verification or ACS request was made
+by this comparison. This closes a client-context gap without explaining the
+present admission failure. `Probe::with_gsf_android_id` now permits that actual
+signed value; callers that omit it retain zero and the original request bytes.
+Private evidence: `runtime/gsf-messages-audit-20261016/`,
+`runtime/route-audit-native-gsf/` and `runtime/route-audit-gsf-zero-control/`.
+
 ## Next executable work
 
 1. Preserve the verified Rust discovery, initial ACS and consent paths, and
@@ -603,6 +723,10 @@ caused the invalid configuration. Private evidence:
    without validating its claims or treating presence as verification.
 3. Diagnose the advertised direct carrier route and the source-backed legacy
    ACS path using request/proof parity and subscriber eligibility evidence.
+   The native encoder comparison and explicit-number diagnostic are recorded
+   above; none established acceptance. A positive control for this exact line
+   would help distinguish environment/subscription state from remaining protocol
+   differences. Current captures do not identify the rejecting server check.
    The cellular direct-route comparison did not resolve the invalid config;
    legacy cellular timeouts remain inconclusive. Keep UPI's verification throttle
    separate; there is no automatic retry loop or scheduled verification request.

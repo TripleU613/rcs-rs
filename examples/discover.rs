@@ -1,6 +1,7 @@
 //! One explicit live request:
 //! cargo run --example discover -- MCC MNC DEVICE MANUFACTURER PACKAGE_VERSION [GMS_VERSION]
 //! Credentials: RCS_APP_PACKAGE, RCS_APP_CERT_SHA1, and RCS_API_KEY_FILE or RCS_API_KEY.
+//! Optional RCS_GSF_ANDROID_ID: actual client-context GServices ID, signed decimal.
 //! Keep application keys outside the repository. No subscriber identifiers are accepted.
 
 use rcs_rs::{Carrier, ClientMetadata, Probe, wire::onboarding_flags::AcsLocation};
@@ -66,6 +67,13 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             .parse()
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid GMS version"))?;
         probe = probe.with_gms_version(version)?;
+    }
+    if let Some(value) = env::var_os("RCS_GSF_ANDROID_ID") {
+        let id = value
+            .to_str()
+            .and_then(|value| value.parse().ok())
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "invalid GServices ID"))?;
+        probe = probe.with_gsf_android_id(id);
     }
     let discovery = rcs_rs::discover(&metadata, &probe).await?;
     println!("RCS enabled state: {}", discovery.flags.rcs_enabled_state);

@@ -11,6 +11,10 @@ in Parameters repeated field6. It catches dropping the GMS context while
 retaining the calling app's package/version. No installed version is invented
 when the host does not supply one.
 
+`request-with-gsf.bin` adds RequestContext field 2, the synthetic signed-int64
+GServices ID `0x1020304050607080`, to that independently encoded GMS request.
+The value exceeds JavaScript's exact integer range; no real device ID is used.
+
 `onboarding.bin` has ACS host `rcs.example.test`, enabled state `1`, ignored
 IMEI/IMSI formats (`4`), a 3600-second validity, and unknown fields in both the
 onboarding flags and outer response. Other fixtures exercise disabled, missing,

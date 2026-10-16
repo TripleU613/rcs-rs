@@ -6,6 +6,10 @@ available route: supplying the actual installed GMS version enables direct TS43
 carrier authentication. That route does not require Google's UPI number token.
 The newest direct ACS test still returned an invalid configuration without
 subscriber credentials. UPI verification remains throttled separately.
+The user confirmed this exact line has never previously activated RCS on a
+stock phone. There is therefore no positive reference activation for this line;
+subscription/environment admission and remaining protocol differences are still
+separate unknowns.
 
 Current Messages includes its own package/version and installed GMS
 package/version in discovery. Holding the request's other fields constant,
@@ -14,9 +18,14 @@ omitting GMS returned UPI disabled (wire 1), direct TS43 disabled and policy
 actual version returned UPI without ACS fallback (wire 3), direct TS43 enabled,
 a carrier entitlement endpoint and policy `upi-carrier-tos-ts43`. Policy comes
 from a separate type-3 configuration: response oneof field 5, inner string field
-1. It is copied verbatim to `supported_provisioning_types`; it cannot be inferred
-from the UPI enum. Both comparisons held GSF ID at zero, so they establish the
+1. UPI and legacy request builders copy it verbatim to
+`supported_provisioning_types`; the direct TS43 builders omit that header.
+It cannot be inferred from the UPI enum. Both comparisons held GSF ID at zero, so they establish the
 effect of package context, not complete native-client parity.
+The actual Messages-context GServices ID was subsequently recovered without
+changing identity. Using it versus zero returned identical onboarding payloads
+and policy, with only cache validity differing; Rust now accepts the actual ID
+through `Probe::with_gsf_android_id`.
 
 The original Messages route selector checks direct TS43 before UPI, but also
 requires local GMS availability at version 254500000. The installed microG
@@ -30,8 +39,10 @@ local Google SDK gate passed. See [the direct-route evidence](gapps-bootstrap.md
 | --- | --- | --- |
 | Configuration discovery | Corrected Rust request receives ACS, direct TS43 support and a carrier endpoint | Include actual installed GMS context; preserve route-specific policy |
 | Direct carrier-to-ACS route | Fresh carrier authentication/token, genuine platform proof and owned participant signature reach ACS | Resolve version-0 invalid config and obtain accepted subscriber credentials |
+| Direct request parity | Native binding map/proof bytes/query assembly match; extra policy header removed in attempt06 | Corrected request still gets unspecified invalid config; no positive attestation verdict |
 | Network-path comparison | Direct ACS over selected-SIM cellular also returns invalid config | A different egress did not resolve this tested request |
 | Legacy IMSI route | Source-backed minimal-profile request reaches ACS from host but receives invalid config | Resolve admission; cellular timeouts alone were inconclusive |
+| Explicit-number diagnostic | Supported legacy MSISDN request with the SIM's own number also gets invalid config | This was a separate experiment, not an observed fallback after version 0 |
 | GMS consent and initial verification | Rust consent works; an earlier probe received a real pending TS43 challenge | A fresh, non-throttled verification challenge |
 | Carrier authentication | Actual selected-SIM EAP-AKA and AcquireTemporaryToken succeeded | Submit complete genuine JSON under the corrected `joty` string field 2 |
 | Read-only number status | Signed reference query at 14:39 UTC and exported Rust API at 14:47 UTC succeeded with zero records | This lookup cannot create a verified number or restore a challenge |

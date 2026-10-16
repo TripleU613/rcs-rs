@@ -89,9 +89,17 @@ pub struct Probe {
     manufacturer: String,
     package_version: i64,
     gms_version: Option<i64>,
+    gsf_android_id: i64,
 }
 
 impl Probe {
+    /// Supply the actual GServices `android_id` read in the client context.
+    /// This is a signed Java long, not Settings.Secure.ANDROID_ID or an invented ID.
+    pub fn with_gsf_android_id(mut self, android_id: i64) -> Self {
+        self.gsf_android_id = android_id;
+        self
+    }
+
     /// Include the actual installed Play Services (or compatible implementation) version.
     /// Omitting this package can select different provisioning routes at discovery.
     pub fn with_gms_version(mut self, version: i64) -> Result<Self, Error> {
@@ -126,6 +134,7 @@ impl Probe {
             manufacturer: manufacturer.into(),
             package_version,
             gms_version: None,
+            gsf_android_id: 0,
         })
     }
 }
@@ -153,7 +162,7 @@ fn make_request(
     let message = wire::GetConfigurationRequest {
         context: Some(wire::RequestContext {
             request_uuid: uuid.into(),
-            gsf_android_id: 0,
+            gsf_android_id: probe.gsf_android_id,
         }),
         parameters: vec![wire::Parameters {
             correlation_id: "0".into(),
@@ -372,6 +381,36 @@ mod tests {
             let probe =
                 Probe::new(Carrier::new("001", "01").unwrap(), "generic", "Example", 1).unwrap();
             assert!(probe.with_gms_version(version).is_err());
+        }
+    }
+
+    #[test]
+    fn actual_gservices_id_reaches_context_without_losing_package_metadata() {
+        let metadata = ClientMetadata::new("synthetic-secret", "org.example.sms", CERT).unwrap();
+        let probe = Probe::new(Carrier::new("001", "01").unwrap(), "generic", "Example", 1)
+            .unwrap()
+            .with_gms_version(253_000_000)
+            .unwrap()
+            .with_gsf_android_id(0x1020_3040_5060_7080);
+        let request = make_request(&metadata, &probe, "00000000-0000-4000-8000-000000000000");
+        assert_eq!(
+            request.get_ref().encode_to_vec(),
+            include_bytes!("../tests/fixtures/request-with-gsf.bin")
+        );
+    }
+
+    #[test]
+    fn gservices_id_preserves_the_full_signed_java_long_range() {
+        let metadata = ClientMetadata::new("synthetic-secret", "org.example.sms", CERT).unwrap();
+        for id in [i64::MIN, -1, 0, i64::MAX] {
+            let probe = Probe::new(Carrier::new("001", "01").unwrap(), "generic", "Example", 1)
+                .unwrap()
+                .with_gsf_android_id(id);
+            let request = make_request(&metadata, &probe, "00000000-0000-4000-8000-000000000000");
+            assert_eq!(
+                request.get_ref().context.as_ref().unwrap().gsf_android_id,
+                id
+            );
         }
     }
 

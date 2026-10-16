@@ -52,12 +52,18 @@ plaintext file), then run:
 cargo run --example discover -- MCC MNC DEVICE MANUFACTURER PACKAGE_VERSION [GMS_VERSION]
 ```
 
-The probe sends MCC/MNC and device/application metadata, with GSF Android ID
-zero. It accepts no phone number, IMSI or IMEI. Backend admission may restrict
+The probe sends MCC/MNC and device/application metadata, defaulting GSF Android
+ID to zero. It accepts no phone number, IMSI or IMEI. Backend admission may restrict
 the application credentials. `DEVICE` is Android's `Build.DEVICE`, not its model
 name. Supply the actual installed Play Services or compatible implementation's
 version with `Probe::with_gms_version` or the final CLI argument when present;
 the minimal request without it can receive different provisioning routes.
+`Probe::with_gsf_android_id` (CLI: optional `RCS_GSF_ANDROID_ID`) passes the actual
+signed-decimal GServices `android_id` read in the authorized client context.
+Leave it unset when unknown. Shell/Phone lookups can differ from Messages due
+to provider access rules; neither Settings.Secure.ANDROID_ID nor a check-in ID
+is an established substitute. On this test line, the actual ID and zero returned
+identical onboarding flags and policy.
 Output contains configuration flags and the ACS
 host, without response tokens.
 
