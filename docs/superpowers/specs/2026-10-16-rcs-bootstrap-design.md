@@ -1,7 +1,12 @@
 # RCS bootstrap design
 
 Date: 2026-10-16
-Status: proposed for review
+Status: bootstrap direction accepted; expanded interoperability plan requested
+
+The user's 2026-10-16 clarification makes actual messaging with Google Messages
+the project goal. This document describes only the bootstrap sub-project. See
+the [full interoperability plan](../plans/2026-10-16-google-rcs-interoperability.md)
+for the required messaging, encryption and application-integration work.
 
 ## Intended outcome
 

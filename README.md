@@ -10,8 +10,12 @@ handles service provisioning, registration, capabilities and RCS messaging.
 interoperability has been demonstrated. A reachable configuration server alone
 does not establish that a provider accepts independent clients.
 
-The first milestone is **valid carrier provisioning followed by authenticated
-IMS registration**. See the [initial design](docs/superpowers/specs/2026-10-16-rcs-bootstrap-design.md).
+Success means this library sends a text to current Google Messages and receives
+a reply over **verified RCS**, independently of Google Messages on the sending
+device. Provisioning and registration are intermediate milestones.
+
+See the [Google RCS interoperability plan](docs/superpowers/plans/2026-10-16-google-rcs-interoperability.md)
+and the [bootstrap design](docs/superpowers/specs/2026-10-16-rcs-bootstrap-design.md).
 
 ## Reuse first
 
