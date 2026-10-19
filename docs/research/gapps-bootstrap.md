@@ -1,7 +1,8 @@
 # GApps RCS bootstrap: recovered behavior
 
-Investigation date: 2026-10-16. Status: bootstrap discovery, ACS challenge,
-consent lookup, a verification challenge and carrier SIM authentication have been reproduced;
+Investigation dates: 2026-10-16 through 2026-10-19. Status: bootstrap discovery,
+ACS challenge, consent lookup, a verification challenge, carrier SIM authentication,
+independent check-in and direct own-context DroidGuard VM execution have been reproduced;
 subscriber provisioning, registration and message exchange
 remain incomplete. Findings distinguish static code from execution.
 
@@ -1024,16 +1025,62 @@ has compile/DEX and malformed-wire checks; no captured credentials are fixtures.
 This establishes an independently issued check-in identity through ordinary
 Android APIs, not accepted RCS provisioning or an accepted DroidGuard proof.
 The phone still had microG installed; a physical no-GApps/no-microG portability
-test remains open. The next standalone VM step must use its actual own Context,
-legitimate bootstrap inputs and verified artifacts rather than profile changes,
-a random callback ID or another app's credentials. The normal-key ACS candidate
-and its response-derived wait in section16 remain unchanged.
+test remains open. Section18 records the subsequent own-context VM execution.
+The normal-key ACS candidate and its response-derived wait in section16 remain
+unchanged.
 
 Private evidence: `static/upstream-droidguard-ec206605/source-manifest.json`,
 `static/rcs_runtime/standalone-droidguard-boundary.md`,
 `static/carrier-static/standalone-checkin-identity.md` and
 `standalone-checkin-probe/runs/` under the runtime audit directory. The host
 intent and Android app-private credentials remain outside Git.
+
+## 18. Direct own-context VM execution
+
+The independent test APK was updated with the same package and signing key.
+Separate inspections before and after the update confirmed that its own issued
+check-in credentials remained present. The host invokes the VM directly through
+its own Android Context and ordinary UID, rather than delegating the snapshot
+to microG's Binder service as in section16. The private diagnostic host source
+digest is `6d3855617e532ead80ae1e8b9cf0c97d5b20b94150bc8346e989c32a56804af5`.
+
+The bootstrap transport, wire schema, public verification anchors and callback
+ABI were compared with the pinned source from section17. Its published SDK
+default endpoint configuration was used with the test app's actual package,
+Context, accessible Build fields and identifying User-Agent. Protocol version
+constants describe interface compatibility. The callback returns the app's
+own issued check-in ID; no ID or security token is exported from private app
+storage. Unsupported callback operations stop the diagnostic.
+
+Before any bootstrap request, a network-free on-device control verified the
+host APK with Android SDK35's `apksig` implementation, matched its signer to
+PackageManager and confirmed that the vendor certificate pin rejects it.
+For downloaded code, the host verifies the exact signed response bytes before
+decoding, requires an inline VM APK and bytecode, then verifies the APK's
+signature and expected vendor certificate. It binds the read-only file by a
+local hash before loading, checks class-loader provenance before initialization
+and closes the constructed handle. The upstream permissive APK-verification
+stub is not used. These checks do not establish future Android platform policy
+compatibility beyond this tested environment.
+
+On 2026-10-19, one explicit bootstrap returned HTTP200 and a 449168-byte decoded
+response without Retry-After. The response signature and VM APK verification
+passed; VM initialization, `ss(Map)` and close completed in the ordinary app.
+The snapshot was 28365 opaque bytes, without the known local error prefix or
+an unsupported callback. A fresh inspection reported the recorded attempt,
+preserved own identity and no network attempt. Independent host and app journals
+prevent automatic bootstrap repeats. No carrier, ACS, number-verification or
+check-in registration call was made by this diagnostic.
+
+This proves direct VM execution in the host's own Context. The snapshot was not
+submitted to an RCS verifier and is not an accepted attestation. The phone still
+had microG installed; a physical no-GApps/no-microG test remains open. Subscriber
+provisioning, registration and two-way Google Messages RCS remain unproved.
+
+Private evidence: `standalone-checkin-probe/vm-lifecycle-summary-20261019.json`,
+`standalone-checkin-probe/vm-runs/` and the pinned source manifest from section17.
+The vendor VM, bootstrap configuration, own signing key and app-private state
+remain outside Git.
 
 ## Next executable work
 
@@ -1058,8 +1105,9 @@ intent and Android app-private credentials remain outside Git.
    remains untested and must respect both the prior response's freshness and
    a fresh native retry deadline. The ordinary-caller SDK control in section 16
    still depends on microG and does not satisfy the vanilla-ROM requirement.
-   Section17 adds an independent ordinary-app check-in identity; standalone VM
-   execution and provider admission still need proof.
+   Section17 adds an independent ordinary-app check-in identity; section18 adds
+   direct own-context VM execution. Provider admission and physical portability
+   without GApps/microG still need proof.
    The cellular direct-route comparison did not resolve the invalid config;
    legacy cellular timeouts remain inconclusive. Keep UPI's verification throttle
    separate; the research probes have no automatic retry loop or scheduled
