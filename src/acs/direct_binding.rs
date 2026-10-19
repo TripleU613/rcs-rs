@@ -47,29 +47,16 @@ impl<'a> DirectBindingV2<'a> {
     pub fn new(parameters: DirectBindingParameters<'a>) -> Result<Self, Error> {
         Self::with_salt(parameters, uuid::Uuid::new_v4().to_string())
     }
-    fn with_salt(parameters: DirectBindingParameters<'a>, salt: String) -> Result<Self, Error> {
+    pub(super) fn with_salt(
+        parameters: DirectBindingParameters<'a>,
+        salt: String,
+    ) -> Result<Self, Error> {
         let p = &parameters;
-        if p.application_package.is_empty()
-            || p.application_package.len() > 256
-            || !p
-                .application_package
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'_')
-            || uuid::Uuid::parse_str(p.caller_session_id).is_err()
-            || salt.len() != 36
-            || uuid::Uuid::parse_str(&salt).is_err()
-        {
+        validate_identity(p.application_package, p.caller_session_id, p.imsi, p.imei)?;
+        if salt.len() != 36 || uuid::Uuid::parse_str(&salt).is_err() {
             return Err(Error::InvalidInput(
                 "direct binding application/session/salt",
             ));
-        }
-        for (value, min, max) in [(p.imsi, 5, 15), (p.imei, 14, 16)] {
-            if !value.is_empty()
-                && (!(min..=max).contains(&value.len())
-                    || !value.bytes().all(|b| b.is_ascii_digit()))
-            {
-                return Err(Error::InvalidInput("direct binding identifiers"));
-            }
         }
         for value in [p.cookie_value, p.carrier_temporary_token, p.challenge] {
             if value.is_empty() || value.len() > 16 * 1024 || value.chars().any(char::is_control) {
@@ -125,6 +112,33 @@ impl<'a> DirectBindingV2<'a> {
         };
         Ok(STANDARD.encode(proof.encode_to_vec()))
     }
+}
+
+pub(super) fn validate_identity(
+    package: &str,
+    session: &str,
+    imsi: &str,
+    imei: &str,
+) -> Result<(), Error> {
+    if package.is_empty()
+        || package.len() > 256
+        || !package
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'_')
+        || uuid::Uuid::parse_str(session).is_err()
+    {
+        return Err(Error::InvalidInput(
+            "direct binding application/session/salt",
+        ));
+    }
+    for (value, min, max) in [(imsi, 5, 15), (imei, 14, 16)] {
+        if !value.is_empty()
+            && (!(min..=max).contains(&value.len()) || !value.bytes().all(|b| b.is_ascii_digit()))
+        {
+            return Err(Error::InvalidInput("direct binding identifiers"));
+        }
+    }
+    Ok(())
 }
 
 fn hash(value: &str, salt: &str) -> String {

@@ -163,6 +163,36 @@ This path has synthetic wire and localhost transport coverage. A separate live
 UPI challenge probe obtained a nonce/cookie; credential-bearing UPI provisioning
 and service registration remain unverified.
 
+`AcsSession::direct_challenge(&DirectParameters)` implements the separate direct
+TS43 route. It returns either opaque WAP bytes or an owned challenge context.
+After genuine selected-subscription carrier authentication, consume that context
+with `bind_carrier(token)`. The resulting `DirectBoundChallenge` supplies the
+private VM input map and the trimmed MLS nonce/signing bytes. Its consuming
+`provision(raw_vm_snapshot, &MlsProof)` verifies the owned participant signature
+and submits one multipart POST to the same configured path. VM execution and
+carrier authentication remain the Android host's responsibility.
+
+Supply actual configuration version/state, SMS port, device type and already
+formatted own-client metadata. Initial version/state/port0 are explicit inputs,
+not universal defaults. This bounded direct implementation excludes optional
+instance-ID/provision-ID branches. `home_kds` is explicit caller configuration;
+reference build 324451063 has a compiled default 2, which is not an independent
+client's enrollment or server assignment.
+
+Initial direct and UPI exchanges require a fresh applicable cookie jar; UPI also
+checks its separate `/provision` path. A previous GET's cookie cannot authorize a
+new challenge that supplies none. Generic initial/number-based methods retain
+their stateful cookie behavior. Keep request journals and service waits outside
+the HTTP session; creating another session does not reset those obligations.
+Any ACS Retry-After header stops the exchange, including on HTTP200. Only numeric
+delta-seconds are returned as a duration; date/invalid/empty values still stop it.
+ACS transport disables protocol retries and redirects. Its 10s connect/20s total
+timeouts are host limits, not the reference client's 20s connect/60s read limits.
+
+The direct Rust API has synthetic framing/signature and localhost transport
+coverage. It has not yet submitted a live own-client ACS proof or established
+accepted provisioning, registration or messaging.
+
 `cargo test --all-targets` runs the synthetic protocol and localhost transport
 checks. Formatting and strict Clippy also pass. No live credentials are needed
 for these tests.

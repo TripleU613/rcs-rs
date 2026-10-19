@@ -26,6 +26,25 @@ fn parameters() -> UpiParameters<'static> {
         client_channel: "PUBLIC",
     }
 }
+
+#[tokio::test]
+async fn an_initial_upi_get_cannot_reuse_an_older_post_path_cookie() {
+    use crate::acs::tests::{mock_session, reply};
+    let xml = include_str!("../../../tests/fixtures/clientauth.xml")
+        .replace("goog-droidguard", "goog-mls-upi");
+    let(s,server)=mock_session(vec![reply(200,"Content-Type: application/vnd.gsma.cfg-clientauth+xml\r\nSet-Cookie: JIBE_ACS_COOKIE=previous-cookie; Path=/provision\r\n",&xml),reply(200,"Content-Type: application/vnd.gsma.cfg-clientauth+xml\r\n",&xml)]).await;
+    let p = parameters();
+    let first = s.upi_challenge(&p).await.unwrap();
+    drop(first);
+    assert!(matches!(
+        s.upi_challenge(&p).await,
+        Err(Error::InvalidInput(
+            "ACS challenge requires fresh cookie state"
+        ))
+    ));
+    server.abort();
+    assert!(server.await.unwrap_err().is_cancelled());
+}
 fn challenge<'a>(session: &'a AcsSession, parameters: &'a UpiParameters<'a>) -> UpiChallenge<'a> {
     session.cookies.add_cookie_str(
         "JIBE_ACS_COOKIE=synthetic-cookie; Path=/; Secure",
@@ -386,7 +405,15 @@ async fn an_active_upi_context_excludes_cookie_mutating_challenges_until_dropped
         "Content-Type: application/vnd.gsma.cfg-clientauth+xml\r\nSet-Cookie: JIBE_ACS_COOKIE=synthetic-cookie; Path=/\r\n",
         &xml,
     );
-    let (session, server) = mock_session(vec![response.clone(), response]).await;
+    let (session, server) = mock_session(vec![
+        response,
+        reply(
+            200,
+            "Content-Type: application/vnd.wap.connectivity-xml\r\n",
+            "<wap-provisioningdoc/>",
+        ),
+    ])
+    .await;
     let p = parameters();
     let c = session.upi_challenge(&p).await.unwrap();
     assert!(matches!(
@@ -398,7 +425,15 @@ async fn an_active_upi_context_excludes_cookie_mutating_challenges_until_dropped
         Err(Error::InvalidInput("ACS session exchange already active"))
     ));
     drop(c);
-    let c = session.upi_challenge(&p).await.unwrap();
-    drop(c);
+    assert!(matches!(
+        session.upi_challenge(&p).await,
+        Err(Error::InvalidInput(
+            "ACS challenge requires fresh cookie state"
+        ))
+    ));
+    assert!(matches!(
+        session.initial_challenge(&p.client, None).await.unwrap(),
+        Response::WapConfiguration(_)
+    ));
     assert_eq!(server.await.unwrap().len(), 2);
 }

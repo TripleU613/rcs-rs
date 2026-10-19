@@ -1176,8 +1176,13 @@ No enrollment, carrier, ACS, VM bootstrap or check-in registration request was
 made by this MLS probe. Its output explicitly reports enrolled=false and
 attestation_verified=false. This is the local persisted-identity/proof boundary,
 not an admitted RCS session. The next live attempt still needs a fresh authorized
-ACS session, genuine reusable VM materials, selected-SIM authentication and a
-source/configured home-KDS value, while honoring section16's retry gate.
+ACS session, genuine VM materials and selected-SIM authentication, while honoring
+section16's retry gate. A later source audit found typed long value 2 as the exact
+compiled default for home-KDS flag 45670222 in reference build 324451063. The normal
+provider passes it unchanged to the decimal query field. This supports explicit
+reference-default configuration, not a universal value, current server assignment
+or evidence of independent-client enrollment. The private source trace is
+`static/rcs_runtime/own-home-kds-contract.md`.
 
 Private evidence: `static/rcs_runtime/ordinary-mls-identity-contract.md` and
 `standalone-checkin-probe/mls-lifecycle-summary-20261019.json`, with private
@@ -1244,6 +1249,62 @@ version4/version5 source/build/controller artifacts beside it. The phone still
 has microG installed; physical no-GApps portability, server attestation
 acceptance, provisioning, registration and Google Messages exchange remain open.
 
+## 22. Rust direct ACS transaction context
+
+`AcsSession::direct_challenge(&DirectParameters)` now implements the recovered
+direct HTTP sequence independently of the UPI path. It returns either an opaque
+WAP configuration or a challenge that holds exclusive session access. Carrier
+authentication happens afterward: consuming `bind_carrier` attaches the genuine
+selected-subscription temporary token and creates one salt. The resulting bound
+context supplies the own-package V2 VM map, Java-style trimmed MLS nonce and
+RFC9420 signing bytes. Its consuming `provision` locally verifies participant-key
+possession and sends at most one POST. Neither the carrier token nor supplied VM
+bytes acquire a provenance/attestation verdict from this API.
+
+Both requests preserve the configured ACS path, actual cached version/state,
+configured SMS port, optional selected-SIM identifiers and caller-formatted own
+metadata. The query token stays empty; the carrier temporary token appears only
+in the multipart body. The initial authenticity advertisement is absent on POST.
+The two parts have the exact source-backed UTF8 text MIME type and no filename;
+the proof part name uses the unchanged GET method ID. The POST includes all three
+MLS query fields and an explicit caller routing value. Optional instance-ID and
+provision-ID branches remain unsupported; model formatting/selected length limits
+are supplied by the caller. The current host 10s connect/20s overall timeouts are
+stricter than the reference 20s connect/60s read limits.
+
+The same GET's JIBE value and full Cookie header are frozen alongside its
+method/challenge, normalized nonce and immutable caller parameters. Cookie changes
+before submission fail. A review found that the first implementation could reuse
+a prior GET's jar cookie when another challenge omitted Set-Cookie. A failing
+two-GET regression reproduced it. The recovered native entry clears cookies;
+the bounded Rust implementation instead requires fresh applicable state before
+the GET. The same issue was reproduced for initial UPI with an older cookie
+scoped only to `/provision`; a shared guard checks both GET and proof paths.
+Generic stateful initial/number-based operations keep their cookie semantics.
+Creating a new HTTP session does not reset host journals or real service waits.
+
+Common ACS transport now explicitly disables reqwest 0.13.5's default protocol
+retries and stops on any Retry-After header, including HTTP200. Existing numeric
+delta-seconds remain available in `Error::Http`; HTTP dates/invalid/empty values
+have no parsed duration but still stop before the next step. This intentional
+shared policy also applies to UPI and the generic ACS probes. It is not a retry
+schedule or a reason to ignore an unknown wait.
+
+Synthetic tests cover configured non-root paths, metadata/state/port values,
+identifier omission, exact multipart framing and both encoding layers, salt/map
+coupling, private Debug, owned-key signatures and wrong nonces, unsafe method
+names, stale/missing/ambiguous cookies, exclusive context ownership, Java nonce
+trimming that preserves NBSP and the separate DG challenge, opaque WAP handling,
+HTTP200 wait headers, redirects and service rejections. Both stale-cookie fixes
+have failing-before/passing-after regressions. All traffic in these tests is
+loopback; no carrier, verification, VM or ACS backend request was made.
+
+Private source contract: `static/carrier-static/direct-acs-http-contract.md`,
+anchored to the same Messages324451063 artifact. This is preparation for the
+next authorized own-client transaction. Android VM/carrier integration, actual
+provider admission, registration, Google Messages exchange and physical vanilla
+ROM portability remain open.
+
 ## Next executable work
 
 1. Preserve the verified Rust discovery, initial ACS and consent paths, and
@@ -1276,6 +1337,8 @@ acceptance, provisioning, registration and Google Messages exchange remain open.
    retains the signed envelope/bytecode association, but the observed ten-second
    cache lifetime expired before another process could execute it. Keep genuine
    VM creation and snapshot within the future authorized ACS transaction.
+   Section22 now supplies the Rust direct request/context path; it still needs
+   the real Android host's carrier, VM and persisted MLS operations in that run.
    Section20 adds durable own-app participant/device identity and locally verified
    labeled proofs; using that identity in an accepted ACS request remains open.
    The cellular direct-route comparison did not resolve the invalid config;

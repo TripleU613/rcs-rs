@@ -1,4 +1,4 @@
-//! ACS challenges and recovered UPI provisioning; no attestation generation or registration.
+//! ACS challenges and recovered direct/UPI exchanges; no attestation generation or registration.
 use bytes::Bytes;
 use reqwest::cookie::{CookieStore, Jar};
 use std::{
@@ -14,6 +14,8 @@ mod upi;
 pub use upi::{MlsProof, UpiChallenge, UpiParameters};
 mod direct_binding;
 pub use direct_binding::{DirectBindingParameters, DirectBindingV2};
+mod direct;
+pub use direct::{DirectBoundChallenge, DirectChallenge, DirectParameters, DirectStart};
 
 const AUTH_MEDIA_TYPE: &str = "application/vnd.gsma.cfg-clientauth+xml";
 const AUTH_NS: &str = "urn:gsma:params:xml:ns:cfg:clientauth:req";
@@ -107,6 +109,49 @@ impl AcsSession {
             .unwrap_or(false)
     }
 
+    fn cookie_for(&self, url: &reqwest::Url) -> Result<(String, http::HeaderValue), Error> {
+        let mut header = self
+            .cookies
+            .cookies(url)
+            .ok_or(Error::InvalidInput("ACS session cookie missing"))?;
+        let text = header
+            .to_str()
+            .map_err(|_| Error::InvalidInput("ACS session cookie"))?;
+        let mut values = text
+            .split(';')
+            .filter_map(|p| p.trim().strip_prefix("JIBE_ACS_COOKIE="));
+        let value = values
+            .next()
+            .ok_or(Error::InvalidInput("ACS session cookie missing"))?;
+        if values.next().is_some() {
+            return Err(Error::InvalidInput("ambiguous ACS session cookie"));
+        }
+        let value = value
+            .strip_prefix('"')
+            .and_then(|v| v.strip_suffix('"'))
+            .unwrap_or(value);
+        if value.is_empty()
+            || value.len() > 16 * 1024
+            || !value.bytes().all(|b| b.is_ascii_graphic() && b != b'"')
+        {
+            return Err(Error::InvalidInput("ACS session cookie"));
+        }
+        let value = value.to_owned();
+        header.set_sensitive(true);
+        Ok((value, header))
+    }
+
+    fn require_fresh_cookies(&self, proof_url: &reqwest::Url) -> Result<(), Error> {
+        if self.cookies.cookies(&self.endpoint).is_some()
+            || self.cookies.cookies(proof_url).is_some()
+        {
+            return Err(Error::InvalidInput(
+                "ACS challenge requires fresh cookie state",
+            ));
+        }
+        Ok(())
+    }
+
     fn initial_request(
         &self,
         parameters: &ClientParameters<'_>,
@@ -197,7 +242,11 @@ impl AcsSession {
             .execute(request)
             .await
             .map_err(|e| Error::Transport(e.without_url()))?;
-        if response.status() != reqwest::StatusCode::OK {
+        if response.status() != reqwest::StatusCode::OK
+            || response
+                .headers()
+                .contains_key(reqwest::header::RETRY_AFTER)
+        {
             let retry_after = response
                 .headers()
                 .get(reqwest::header::RETRY_AFTER)
@@ -244,9 +293,29 @@ fn client_builder(cookies: Arc<Jar>) -> reqwest::ClientBuilder {
     reqwest::Client::builder()
         .cookie_provider(cookies)
         .redirect(reqwest::redirect::Policy::none())
+        .retry(reqwest::retry::never())
         .https_only(true)
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(20))
+}
+
+fn mls_signing_input(nonce: &str) -> Vec<u8> {
+    let mut output = Vec::new();
+    for value in [
+        b"MLS 1.0 ACS_Participant_Key_Proof".as_slice(),
+        nonce.as_bytes(),
+    ] {
+        let n = value.len() as u32;
+        if n < 64 {
+            output.push(n as u8);
+        } else if n < 16384 {
+            output.extend_from_slice(&((n as u16) | 0x4000).to_be_bytes());
+        } else {
+            output.extend_from_slice(&(n | 0x8000_0000).to_be_bytes());
+        }
+        output.extend_from_slice(value);
+    }
+    output
 }
 
 pub struct Challenge {
@@ -296,6 +365,8 @@ pub enum Error {
     BodyTooLarge,
     Http {
         status: u16,
+        /// Parsed delta-seconds only. A date, invalid or empty Retry-After still stops
+        /// the exchange; None is not permission to retry. Status may be 200 in that case.
         retry_after: Option<Duration>,
     },
     Transport(reqwest::Error),

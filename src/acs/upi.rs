@@ -23,6 +23,8 @@ pub struct UpiParameters<'a> {
 pub struct MlsProof<'a> {
     pub public_key_der: &'a [u8],
     pub signature_der: &'a [u8],
+    /// Explicit routing configuration. Reference build 324451063 defaults to 2;
+    /// this is not an enrollment result or a universal server assignment.
     pub home_kds: u32,
 }
 pub struct UpiChallenge<'a> {
@@ -38,7 +40,7 @@ macro_rules! redacted { ($($name:ty),*) => { $(impl fmt::Debug for $name {
 })* }; }
 redacted!(UpiParameters<'_>, MlsProof<'_>, UpiChallenge<'_>);
 
-fn header(value: &str, name: &'static str) -> Result<http::HeaderValue, Error> {
+pub(super) fn header(value: &str, name: &'static str) -> Result<http::HeaderValue, Error> {
     if value.is_empty()
         || value.len() > 64 * 1024
         || !value.bytes().all(|b| b.is_ascii_graphic() || b == b' ')
@@ -149,44 +151,20 @@ impl AcsSession {
     fn upi_cookie(&self) -> Result<(String, http::HeaderValue), Error> {
         let mut url = self.endpoint.clone();
         url.set_path("/provision");
-        let mut cookies = self
-            .cookies
-            .cookies(&url)
-            .ok_or(Error::InvalidInput("UPI session cookie missing"))?;
-        let text = cookies
-            .to_str()
-            .map_err(|_| Error::InvalidInput("UPI session cookie"))?;
-        let mut values = text
-            .split(';')
-            .filter_map(|part| part.trim().strip_prefix("JIBE_ACS_COOKIE="));
-        let value = values
-            .next()
-            .ok_or(Error::InvalidInput("UPI session cookie missing"))?;
-        if values.next().is_some() {
-            return Err(Error::InvalidInput("ambiguous UPI session cookie"));
-        }
-        let value = value
-            .strip_prefix('"')
-            .and_then(|v| v.strip_suffix('"'))
-            .unwrap_or(value);
-        if value.is_empty()
-            || value.len() > 16 * 1024
-            || !value.bytes().all(|b| b.is_ascii_graphic() && b != b'"')
-        {
-            return Err(Error::InvalidInput("UPI session cookie"));
-        }
-        let value = value.to_owned();
-        cookies.set_sensitive(true);
-        Ok((value, cookies))
+        self.cookie_for(&url)
     }
     /// Obtain a nonce/cookie for the recovered UPI route, after number verification.
     /// Caller supplies actual configured metadata, subscription eligibility and credential.
+    /// Requires a fresh cookie jar for both the GET path and /provision.
     /// No automatic retries. The returned context borrows the identity/session inputs.
     pub async fn upi_challenge<'a>(
         &'a self,
         p: &'a UpiParameters<'a>,
     ) -> Result<UpiChallenge<'a>, Error> {
         let exchange = self.begin_exchange()?;
+        let mut proof_url = self.endpoint.clone();
+        proof_url.set_path("/provision");
+        self.require_fresh_cookies(&proof_url)?;
         let (media, body) = self.response_body(self.upi_request(p)?).await?;
         let Response::Challenge(challenge) =
             parse_response_for_method(&media, &body, "goog-mls-upi")?
@@ -231,22 +209,7 @@ impl UpiChallenge<'_> {
     /// MLS SignWithLabel bytes for an owned participant key. Sign using P-256/SHA-256,
     /// returning a DER ECDSA signature and the matching SPKI DER public key.
     pub fn private_mls_signing_input(&self) -> Vec<u8> {
-        let mut output = Vec::new();
-        for value in [
-            b"MLS 1.0 ACS_Participant_Key_Proof".as_slice(),
-            self.nonce.as_bytes(),
-        ] {
-            let n = value.len() as u32;
-            if n < 64 {
-                output.push(n as u8);
-            } else if n < 16384 {
-                output.extend_from_slice(&((n as u16) | 0x4000).to_be_bytes());
-            } else {
-                output.extend_from_slice(&(n | 0x8000_0000).to_be_bytes());
-            }
-            output.extend_from_slice(value);
-        }
-        output
+        mls_signing_input(&self.nonce)
     }
     fn body(&self, dg: &str) -> Result<String, Error> {
         use prost::Message;
@@ -281,19 +244,7 @@ impl UpiChallenge<'_> {
                 "UPI cookie changed; new attestation required",
             ));
         }
-        // shortcut: observed P-256 proof only; add other suites when their negotiated format is established.
-        const PREFIX: &[u8] = &[
-            0x30, 0x59, 0x30, 0x13, 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, 0x06,
-            0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07, 0x03, 0x42, 0x00,
-        ];
-        let key = proof
-            .public_key_der
-            .strip_prefix(PREFIX)
-            .filter(|k| k.len() == 65)
-            .ok_or(Error::InvalidInput("UPI participant P-256 public key"))?;
-        ring::signature::UnparsedPublicKey::new(&ring::signature::ECDSA_P256_SHA256_ASN1, key)
-            .verify(&self.private_mls_signing_input(), proof.signature_der)
-            .map_err(|_| Error::InvalidInput("UPI participant signature does not match nonce"))?;
+        proof.verify_nonce(&self.nonce)?;
         let body = self.body(dg)?;
         let mut request = self.session.upi_request(self.parameters)?;
         *request.method_mut() = reqwest::Method::POST;
@@ -342,6 +293,24 @@ impl UpiChallenge<'_> {
         let request = self.make_request(droidguard_result, proof)?;
         let (media, body) = self.session.response_body(request).await?;
         parse_response(&media, &body)
+    }
+}
+
+impl MlsProof<'_> {
+    pub(super) fn verify_nonce(&self, nonce: &str) -> Result<(), Error> {
+        // shortcut: observed P-256 proof only; add other suites when their negotiated format is established.
+        const PREFIX: &[u8] = &[
+            0x30, 0x59, 0x30, 0x13, 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, 0x06,
+            0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07, 0x03, 0x42, 0x00,
+        ];
+        let key = self
+            .public_key_der
+            .strip_prefix(PREFIX)
+            .filter(|k| k.len() == 65)
+            .ok_or(Error::InvalidInput("participant P-256 public key"))?;
+        ring::signature::UnparsedPublicKey::new(&ring::signature::ECDSA_P256_SHA256_ASN1, key)
+            .verify(&mls_signing_input(nonce), self.signature_der)
+            .map_err(|_| Error::InvalidInput("participant signature does not match nonce"))
     }
 }
 
