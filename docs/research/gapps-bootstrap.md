@@ -1460,7 +1460,7 @@ independently reconstructing every decompiler branch. Treat the full flow as a
 bounded implementation lead, not completed protocol parity or runtime success.
 No new carrier/ACS/verification request or SMS send accompanied this audit.
 
-## 26. Fresh VM factory source preparation
+## 26. Fresh VM factory and Android input refusal
 
 The private Android harness now has a fresh-material factory for a future direct
 transaction. Before recording intent or using the network, it validates the
@@ -1479,12 +1479,31 @@ handles snapshot, close, artifact verification and failure wiping.
 This lab factory permits one durable attempt total, including after success.
 Any attempt record blocks another UUID; completion is diagnostic only. Old
 experiment journals remain unchanged. Offline regression checks cover a failure
-after completion, concurrent entry and symlink refusal. All 15 Android Java
-sources compile against the installed SDK, and the pure history and lifecycle
-selfchecks pass. The new factory has no instrumentation/controller entry and
-has not been packaged, invoked, or tested against Android filesystem behavior.
-No new SDK, carrier or ACS request occurred. The actual bound Rust-to-factory
-call, accepted provisioning and ordinary-app carrier authentication remain open.
+after completion, overlapping entry and symlink refusal. The version 8 APK
+packages the factory and a fixed negative control; it has no valid-input
+instrumentation operation. All 16 Java sources compile, and the pure history
+and lifecycle selfchecks pass.
+
+On the phone, Rust constructed seven synthetic V2 fields with the actual own
+package and called the real Java factory with a deliberately invalid salt.
+Success requires the exact typed binding exception, reported as native result7;
+an arbitrary JNI error cannot pass. The factory refused before check-in/config
+access, history creation or HTTP. The ordinary-UID worker also ran the history
+selfchecks inside its own cache, exercising file locking, exclusive writes,
+file force, symlink refusal and refusal after a completed attempt. A thread-local
+StrictMode policy prohibited network use during this control. The genuine
+factory history remained absent before and after, preserving its future attempt.
+This does not test the factory's receipt write, directory fsync or power-loss
+durability.
+
+The same-signer APK update and subsequent control both passed the on-device exact
+protected-file comparison. Existing check-in, MLS, material-cache and attempt
+records stayed unchanged; test cache fixtures and lab comparison files were
+removed. The private build/native provenance and both outcomes are retained in
+`standalone-checkin-probe/fresh-vm-guard-lifecycle-summary-20261019.json`.
+No new SDK, carrier or ACS request occurred. Valid-input factory execution, the
+actual bound ACS transaction, accepted provisioning and ordinary-app carrier
+authentication remain open.
 
 ## Next executable work
 
@@ -1528,8 +1547,8 @@ call, accepted provisioning and ordinary-app carrier authentication remain open.
    with exact on-device record retention across the own APK update. READY
    callback execution remains open. Section25 identifies a source-backed OTP
    alternative; actual policy selection and a genuine associated SMS are missing.
-   Section26 prepares a fresh-material factory without invoking it; the real
-   bound Android transaction and its admission result remain untested.
+   Section26 adds the fresh-material factory's Android filesystem and typed
+   invalid-input control; valid execution and the bound transaction remain untested.
    Section20 adds durable own-app participant/device identity and locally verified
    labeled proofs; using that identity in an accepted ACS request remains open.
    The cellular direct-route comparison did not resolve the invalid config;
