@@ -804,6 +804,7 @@ ordinary APK without Google services.
 | Subsequent paired-request preparation on 2026-10-16 | A fresh native GET returned HTTP200; the native parser, cookie handling and version-2 binding produced the expected nine map entries | The signing harness then failed before DroidGuard or POST. The complete paired request was not exercised. |
 | Synthetic signing-only control on 2026-10-19 | A new volatile P256 key signed the synthetic nonce through the native signer; phone JCA verification and independent host verification passed, and changed content was rejected | This exercised an owned test key, not Messages' persisted participant identity or server enrollment. The harness invoked zero HTTP requests. |
 | Complete native-helper request on 2026-10-19, after a fresh carrier exchange | Native GET returned HTTP200; genuine native DroidGuard computation, verified owned-key signing and native multipart construction completed; POST returned HTTP200 with a 453-byte version-0 document and no applications | The response was unusable. This closes the native HTTP/proof-encoder execution gap; normal MLS-provider enrollment and the reason for the unusable response remain unresolved. |
+| Normal MLS-provider control on 2026-10-19, after strict local row inspection | The normal provider returned a participant-key proof over synthetic input; independent P256 SPKI/signature verification passed and changed content was rejected. A subsequent strict read found one valid row with both participant and device keypairs populated | First use persisted app keys through the normal provider. Only public proof material left the VM. The harness invoked zero HTTP requests; no server enrollment or accepted provisioning was demonstrated. |
 
 The native HTTP control used a separate connection factory and transport with
 real dependencies, a validated Internet `Network`, normal TLS trust, and an
@@ -857,6 +858,37 @@ its own background work, which this probe did not account for. No process guard
 or retry-state override was applied. These results do not identify the server's rejecting
 check or establish a need to replace keys.
 
+The follow-up strict read queried the existing primary-process store directly
+and invoked the native protobuf parser without its default-value fallback. It
+found zero rows for this store. Calling the genuine normal MLS proof provider
+then returned a nonempty public-key/signature result. Independent host
+verification used P256/SHA256 and the MLS label framing; changing the content
+invalidated the signature. The returned home-KDS hint matched the earlier
+control. A second strict query found one successfully parsed row, containing
+the selected `1_2` entry with nonempty participant public/private and device
+public/private fields. Those flags do not independently verify the device
+keypair or demonstrate server enrollment. No stored private key bytes were
+exported. Normal first-use key creation and persistence were intrinsic to the
+provider call; this was not a read-only control.
+
+The full server request above still used a volatile key. A candidate using
+the normal provider now preserves the actual ACS session and nonce through
+signing and native POST construction, with host signature verification of the
+captured proof. Offline tests cover session propagation, empty-proof and
+routing-hint failures, and signature/framing rejection. This candidate has not
+made a live request. The controller checks the native retry cache, and the
+candidate rechecks the on-disk deadline immediately before each HTTP operation;
+a missing, invalid or future deadline stops the attempt.
+
+A separate read on 2026-10-19 found native `RetryState`, retry count14, last
+attempt `2026-10-18T22:06:35Z` and next attempt `2026-10-19T22:06:35Z`.
+The legacy retry field was zero; it did not cancel the modern deadline.
+Messages' RCS toggle was enabled and its visible status was Connecting.
+These are dated local observations, not a fresh server verdict or permission
+to ignore a subsequently rescheduled deadline. The three strict-read/proof
+controls each invoked zero harness HTTP requests. The normally opened app
+could perform its own background work outside those counters.
+
 Owned debugging processes, forwards and output files were removed after the
 captured controls. Where recorded, one RCS storage file's hash was unchanged at
 return and its recovery backup was absent; this does not prove that every app
@@ -878,6 +910,10 @@ The identity checks are retained in
 `native-mls-identity-cache-main-20261019/` and the
 `native-mls-stored-identity-metadata-20261019*` summaries. The completed primary
 process read is in `native-mls-stored-identity-metadata-main-20261019/`.
+Strict row results are in `native-mls-strict-row-metadata-main-20261019/` and
+`native-mls-strict-row-metadata-main-20261019-after-normal/`. The normal proof and
+independent verification are in `native-normal-mls-selfcheck-main-20261019/`.
+The dated retry state is in `normal-provisioning-cache-20261019/summary.json`.
 
 ## Next executable work
 
@@ -897,7 +933,9 @@ process read is in `native-mls-stored-identity-metadata-main-20261019/`.
    The native baseline above now separates missing local microG SDK services
    from the independent direct request's unresolved server admission failure.
    Section15 adds a completed native paired request that still returned an
-   invalid configuration; normal MLS-provider enrollment remains untested.
+   invalid configuration. The normal MLS provider now produces a verified
+   synthetic proof and persists its keys locally. Its coupled server request
+   remains untested and must respect a fresh native retry deadline.
    The cellular direct-route comparison did not resolve the invalid config;
    legacy cellular timeouts remain inconclusive. Keep UPI's verification throttle
    separate; the research probes have no automatic retry loop or scheduled
