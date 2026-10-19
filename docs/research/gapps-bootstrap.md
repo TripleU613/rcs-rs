@@ -1505,6 +1505,56 @@ No new SDK, carrier or ACS request occurred. Valid-input factory execution, the
 actual bound ACS transaction, accepted provisioning and ordinary-app carrier
 authentication remain open.
 
+## 27. Own-client transaction host and Android subscription control
+
+The private version 9 APK builds the actual Rust direct transaction into the own
+Android harness. A single Rust context holds the ACS challenge and cookies,
+waits for newly obtained carrier authentication, signs the exact bound MLS
+nonce with the existing own key, and supplies that same binding's salt and map
+to the fresh VM factory before its single POST. It has no saved-token reader,
+expired-material fallback or caller-supplied snapshot. WAP bodies remain private
+and opaque; receiving one does not establish accepted provisioning.
+
+The host checks the selected subscription before the GET, during HTTP and the
+carrier wait, and before VM execution and POST. The vendor VM call is synchronous;
+only the surrounding checks fence a detected subscription change. Completed
+HTTP errors retain their actual status and numeric retry interval. Java callback
+errors preserve their original exception while clearing temporary JNI buffers,
+including malformed or oversized proof arrays. Fifteen checks against the
+actual shared Rust cleanup module passed on a desktop JVM with checked JNI.
+
+The same-signer APK compiles 20 Java sources and four Rust source modules with
+the existing dependencies. Android compilation and the pure input, wire,
+cache, history and lifecycle checks pass. The frozen native sources and Cargo
+inputs are recorded with the build. A separate offline subscription control
+registers the ordinary app's listener, observes its initial callback, polls for
+two seconds and unregisters. Its runner preserves the existing check-in and MLS
+records and reports only an exact fixed schema; 55 result-parser checks pass.
+
+Version 9 is installed on the same owned phone. The update and both offline
+controls passed their exact on-device protected-file comparisons. The Rust/Java
+negative control again returned the required typed refusal and left genuine
+factory history absent. The ordinary-UID subscription control received its
+initial callback, stayed stable for 17 polls and completed listener cleanup.
+Its worker prohibited network use. Root staged an immutable own-app metadata
+file separately from the existing records, with the known future not-before
+floor intact; the app received the normal `READ_PHONE_STATE` permission.
+These checks establish callback and cleanup behavior, not response to an actual
+SIM change or ordinary-app access to IMSI, IMEI or carrier authentication.
+
+A pure carrier adapter uses the configured service and actual SIM/device values
+with truthful own app metadata and User-Agent; 42 synthetic checks pass. A pure
+dispatch gate retains the evidenced earliest time plus later native and HTTP
+waits, requires current native retry metadata, and rejects missing evidence,
+unparsed retry instructions and clock rollback. Neither component establishes
+server acceptance. The fresh carrier operation and its complete gated
+coordinator still need integration, including live SIM metadata and host-gate
+acknowledgments before VM execution and POST. Version 9 has only local
+subscription and not-before checks at those two boundaries. Carrier AKA through
+the privileged Phone process remains a laboratory dependency, separate from
+ordinary-app capability.
+No new SDK, carrier or ACS request accompanied this source, build and control work.
+
 ## Next executable work
 
 1. Preserve the verified Rust discovery, initial ACS and consent paths, and
@@ -1549,6 +1599,9 @@ authentication remain open.
    alternative; actual policy selection and a genuine associated SMS are missing.
    Section26 adds the fresh-material factory's Android filesystem and typed
    invalid-input control; valid execution and the bound transaction remain untested.
+   Section27 installs the same-context transaction host and verifies its offline
+   subscription control. Complete live SIM inspection, host-gate acknowledgments
+   and the fresh-carrier coordinator before a request allowed by the retained gates.
    Section20 adds durable own-app participant/device identity and locally verified
    labeled proofs; using that identity in an accepted ACS request remains open.
    The cellular direct-route comparison did not resolve the invalid config;
