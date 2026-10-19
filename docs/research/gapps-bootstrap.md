@@ -1460,6 +1460,32 @@ independently reconstructing every decompiler branch. Treat the full flow as a
 bounded implementation lead, not completed protocol parity or runtime success.
 No new carrier/ACS/verification request or SMS send accompanied this audit.
 
+## 26. Fresh VM factory source preparation
+
+The private Android harness now has a fresh-material factory for a future direct
+transaction. Before recording intent or using the network, it validates the
+actual own Context, ordinary UID, stored check-in and own APK signature. It also
+checks the map's package/session/salt/version hashes against the real own package,
+logical session and exact salt exposed by `DirectBoundChallenge`.
+
+The factory accepts only its own live HTTPS response, verifies the signed bytes,
+and retains the genuine receipt clocks, boot and context internally. It has no
+caller-envelope or receipt-time import API and never opens the expired cache.
+Fresh current-operation use is distinct from later cache eligibility: signed
+`save` and TTL fields do not establish a running handle's lifetime. Unknown
+signed wait units remain unresolved. The existing checked execution lifecycle
+handles snapshot, close, artifact verification and failure wiping.
+
+This lab factory permits one durable attempt total, including after success.
+Any attempt record blocks another UUID; completion is diagnostic only. Old
+experiment journals remain unchanged. Offline regression checks cover a failure
+after completion, concurrent entry and symlink refusal. All 15 Android Java
+sources compile against the installed SDK, and the pure history and lifecycle
+selfchecks pass. The new factory has no instrumentation/controller entry and
+has not been packaged, invoked, or tested against Android filesystem behavior.
+No new SDK, carrier or ACS request occurred. The actual bound Rust-to-factory
+call, accepted provisioning and ordinary-app carrier authentication remain open.
+
 ## Next executable work
 
 1. Preserve the verified Rust discovery, initial ACS and consent paths, and
@@ -1502,6 +1528,8 @@ No new carrier/ACS/verification request or SMS send accompanied this audit.
    with exact on-device record retention across the own APK update. READY
    callback execution remains open. Section25 identifies a source-backed OTP
    alternative; actual policy selection and a genuine associated SMS are missing.
+   Section26 prepares a fresh-material factory without invoking it; the real
+   bound Android transaction and its admission result remain untested.
    Section20 adds durable own-app participant/device identity and locally verified
    labeled proofs; using that identity in an accepted ACS request remains open.
    The cellular direct-route comparison did not resolve the invalid config;

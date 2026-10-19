@@ -191,6 +191,10 @@ impl DirectBoundChallenge<'_> {
     pub fn private_droidguard_inputs(&self) -> Result<BTreeMap<String, String>, Error> {
         Ok(self.binding()?.private_droidguard_inputs())
     }
+    /// Exact salt for in-process host binding checks; never log or replace it.
+    pub fn private_droidguard_salt(&self) -> &str {
+        &self.salt
+    }
     /// Java-style trimmed nonce for an own Android signer; distinct from the DG challenge.
     pub fn private_mls_nonce(&self) -> &str {
         &self.context.challenge.nonce

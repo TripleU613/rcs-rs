@@ -198,12 +198,23 @@ fn exact_two_part_body_binds_same_cookie_token_salt_and_owned_mls_nonce() {
     }
     let wire = Wire::decode(STANDARD.decode(proof_text).unwrap().as_slice()).unwrap();
     assert_eq!(wire.version, 2);
-    assert_eq!(wire.salt, c.salt);
+    assert_eq!(wire.salt, c.private_droidguard_salt());
     assert_eq!(wire.snapshot, "c3ludGhldGljLVZNLWJ5dGVz");
     let map = c.private_droidguard_inputs().unwrap();
-    let digest = ring::digest::digest(&ring::digest::SHA384, c.salt.as_bytes());
-    let hex: String = digest.as_ref().iter().map(|b| format!("{b:02x}")).collect();
-    assert_eq!(map["DROIDGUARD_SALT"], hex);
+    let salt = c.private_droidguard_salt();
+    for (key, value) in [
+        ("APP_NAME", format!("{}{salt}", p.application_package)),
+        (
+            "PROVISIONING_SESSION_ID",
+            format!("{}{salt}", p.caller_session_id),
+        ),
+        ("DROIDGUARD_SALT", salt.to_owned()),
+        ("DROIDGUARD_CONTENT_BINDING_VERSION", format!("2{salt}")),
+    ] {
+        let digest = ring::digest::digest(&ring::digest::SHA384, value.as_bytes());
+        let hex: String = digest.as_ref().iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(map[key], hex);
+    }
     assert_eq!(map.len(), 9);
     assert!(!body.contains("filename="));
     assert!(!r.url().as_str().contains("synthetic-carrier-token"));

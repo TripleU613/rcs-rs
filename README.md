@@ -167,7 +167,9 @@ and service registration remain unverified.
 TS43 route. It returns either opaque WAP bytes or an owned challenge context.
 After genuine selected-subscription carrier authentication, consume that context
 with `bind_carrier(token)`. The resulting `DirectBoundChallenge` supplies the
-private VM input map and the trimmed MLS nonce/signing bytes. Its consuming
+private VM input map, its exact salt for in-process host binding checks, and the
+trimmed MLS nonce/signing bytes. Keep that salt coupled to the same context; never
+replace it or export it in diagnostics. Its consuming
 `provision(raw_vm_snapshot, &MlsProof)` verifies the owned participant signature
 and submits one multipart POST to the same configured path. VM execution and
 carrier authentication remain the Android host's responsibility.
