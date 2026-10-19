@@ -1,8 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="org.rcsrs.standalonecheckin" android:versionCode="1" android:versionName="0.1.0">
+    package="org.rcsrs.standalonecheckin" android:versionCode="3" android:versionName="0.3.0">
     <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="36" />
     <uses-permission android:name="android.permission.INTERNET" />
     <application android:label="Own check-in probe" android:allowBackup="false" android:usesCleartextTraffic="false" />
     <instrumentation android:name="org.rcsrs.standalonecheckin.StandaloneCheckinProbe"
+        android:targetPackage="org.rcsrs.standalonecheckin" android:functionalTest="true" />
+    <instrumentation android:name="org.rcsrs.standalonecheckin.StandaloneMlsProbe"
         android:targetPackage="org.rcsrs.standalonecheckin" android:functionalTest="true" />
 </manifest>

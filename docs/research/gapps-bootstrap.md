@@ -1125,6 +1125,65 @@ snapshot bound is a host limit, not a recovered server limit. No live ACS reques
 was made for these tests. The response-derived retry gate in section16 remains
 unchanged, and own-caller provisioning remains unproved.
 
+## 20. Durable own-app MLS identity and labeled proof
+
+The bounded normal participant path (`dbyq`, `dazb`, `daai`, `dbyn`, `dmoe`)
+reads per-selected-SIM participant and device identities, locally creates missing
+P256 pairs, persists both, and signs the ACS nonce. That path exposes no explicit
+prerequisite enrollment RPC or Google caller-certificate check. Its normal
+generator uses platform EC/secp256r1, public SPKI DER and a private scalar;
+native labeled signing is separately corroborated by the earlier independent
+signature checks. This does not establish global service eligibility or server
+enrollment. `home_kds` comes from an injected Messages configuration flag, not
+from the displayed key-generation response; no universal value is invented.
+
+The [ordinary Android diagnostic](../../tools/android-checkin-probe/README.md)
+now also includes independently written local MLS identity code. Its APK uses
+ordinary platform JCA and protected app storage, with no GMS SDK or proprietary
+native MLS implementation. It stores two distinct own P256 pairs atomically
+before signing the caller's nonce, then rereads and validates them. This private
+store uses PKCS8/SPKI rather than copying the reference's private-scalar layout.
+Both public/private pairs receive fixed-domain consistency checks; corrupt,
+partial, mismatched or incorrectly scoped records fail closed. Inspection creates
+no identity or ACS nonce proof, though it performs those local consistency checks.
+Explicit signing uses the RFC9420 MLS1.0 label prefix and variable-length framing
+for `ACS_Participant_Key_Proof`; it signs nonce text, not the DG challenge or salt.
+
+The same-signer update preserved the app's independent check-in credentials.
+Initial inspection found no MLS identity. The first explicit sign persisted
+both pairs, reread them and verified a synthetic-nonce signature. After stopping
+that process, separate inspection found the identity ready without creating keys
+or an ACS nonce proof. A second fresh process signed a different synthetic nonce
+with the same persisted identity and no creation. Both keypair continuity
+checks passed. Only enums, booleans and byte counts left instrumentation; no
+private keys, public keys, fingerprints, signatures, binding tags or nonce values
+were exported by the diagnostic.
+
+The lab controller checked the owned phone and unchanged selected subscription,
+ICCID, slot and default data subscription before and after operations. It used
+root only for read-only SIM inventory and supplied a private binding tag to the
+APK. That setup is not an ordinary-app SIM-discovery capability. The phone still
+had microG installed; a physical no-GApps/no-microG test remains open.
+
+Pure tests cover RFC9420 length boundaries, durable-record decoding, corruption
+and same-curve key mismatches; an integration regression rejects instrumentation
+failure even when ADB exits successfully. Source reviews caught and resolved
+both missing pair-consistency validation and that host failure-propagation bug
+before installation. The public minimal build has compile/DEX checks and identical
+MLS Java sources; the tested private APK additionally contains the VM diagnostic.
+
+No enrollment, carrier, ACS, VM bootstrap or check-in registration request was
+made by this MLS probe. Its output explicitly reports enrolled=false and
+attestation_verified=false. This is the local persisted-identity/proof boundary,
+not an admitted RCS session. The next live attempt still needs a fresh authorized
+ACS session, genuine reusable VM materials, selected-SIM authentication and a
+source/configured home-KDS value, while honoring section16's retry gate.
+
+Private evidence: `static/rcs_runtime/ordinary-mls-identity-contract.md` and
+`standalone-checkin-probe/mls-lifecycle-summary-20261019.json`, with private
+build/controller/run artifacts beside them. Live app-private keys remain only on
+the phone.
+
 ## Next executable work
 
 1. Preserve the verified Rust discovery, initial ACS and consent paths, and
@@ -1155,6 +1214,8 @@ unchanged, and own-caller provisioning remains unproved.
    it to a fresh genuine own-context snapshot and authorized ACS session remains
    untested. The diagnostic host retained its VM APK but no reusable signed
    envelope/bytecode, so it cannot reconstruct that handle from the APK alone.
+   Section20 adds durable own-app participant/device identity and locally verified
+   labeled proofs; using that identity in an accepted ACS request remains open.
    The cellular direct-route comparison did not resolve the invalid config;
    legacy cellular timeouts remain inconclusive. Keep UPI's verification throttle
    separate; the research probes have no automatic retry loop or scheduled

@@ -7,6 +7,8 @@ account, phone/SIM, root, shared-UID or third-party-library dependency.
 
 This is a Task 2 authentication experiment. Check-in credentials do not establish
 DroidGuard acceptance, RCS provisioning, SIP registration or message delivery.
+An additional self-targeted MLS diagnostic tests durable own participant/device
+keys and labeled nonce signing. Neither diagnostic establishes server enrollment.
 
 `inspect` is the default and reads only this app's private state. Explicit
 `register` makes one initial gzip/protobuf HTTPS POST with androidId0,
@@ -44,8 +46,9 @@ to a private directory outside Git. From this directory:
 ```sh
 umask 077
 mkdir -p "$PROBE_BUILD/classes" "$PROBE_BUILD/dex"
-javac --release 8 -classpath "$ANDROID_JAR" -d "$PROBE_BUILD/classes" CheckinWire.java StandaloneCheckinProbe.java
+javac --release 8 -classpath "$ANDROID_JAR" -d "$PROBE_BUILD/classes" CheckinWire.java StandaloneCheckinProbe.java MlsIdentity.java StandaloneMlsProbe.java
 java -ea -cp "$PROBE_BUILD/classes" org.rcsrs.standalonecheckin.CheckinWire
+java -ea -cp "$PROBE_BUILD/classes" org.rcsrs.standalonecheckin.MlsIdentity
 jar cf "$PROBE_BUILD/classes.jar" -C "$PROBE_BUILD/classes" .
 "$BUILD_TOOLS/d8" --lib "$ANDROID_JAR" --min-api 29 --output "$PROBE_BUILD/dex" "$PROBE_BUILD/classes.jar"
 "$BUILD_TOOLS/aapt2" link -I "$ANDROID_JAR" --manifest AndroidManifest.xml -o "$PROBE_BUILD/unsigned.apk"
@@ -98,6 +101,60 @@ test ran on a custom ROM with microG installed; this probe did not call it.
 Physical testing on a ROM without GApps/microG remains open. Repeated-unknown
 field hardening was verified offline after that runtime baseline.
 
+## Local MLS identity diagnostic
+
+`StandaloneMlsProbe` requires the same app's persisted own check-in identity.
+Its `inspect` default reads the selected identity without creating it or signing
+an ACS nonce. It performs discarded fixed-domain signatures to validate both
+stored public/private pairs. Explicit `sign` creates participant and device
+P256 pairs only for a fresh scope, persists both, rereads them, then signs and
+verifies the nonce with RFC9420 SignWithLabel and label
+`ACS_Participant_Key_Proof`. It uses ordinary platform JCA, with no Google SDK,
+proprietary native MLS code or network request. The private store uses SPKI and
+PKCS8; this is the probe's own format, distinct from the reference's private scalar.
+
+Supply `-e binding_tag` with a private stable 64-character lowercase-hex tag for
+the verified selected SIM. The host must verify that same SIM before and after
+every operation; the APK does not discover it or obtain SIM permissions. The lab
+used root only for read-only host-side SIM inventory, which is not a proven
+ordinary-app SIM-binding solution. For `sign`, also supply `-e nonce_base64` with
+canonical standard padded Base64 of the actual UTF8 ACS nonce, not the separate
+DroidGuard challenge. Empty/control-containing/malformed text and nonces over
+16 KiB fail closed. Inspect rejects a nonce argument.
+
+The host must durably record first-use intent before dispatch, reject a missing
+identity when a prior creation intent exists, and retain the same own app signing
+key/data across updates. Existing or partial/corrupt state is never replaced.
+Both roles have private/public baselines and pair-consistency checks; file locking
+serializes writers, and file/directory fsync plus atomic rename precede ACS nonce
+signing. No reset, rotation, proof export or key export operation is provided.
+
+Bundle key `standalone_mls` contains schema_version1, mode/stage/status enums,
+own_context, ordinary_uid, own_checkin_present, identity_present,
+identity_created, identity_reloaded, participant_continuity, device_continuity,
+signature_verified, attestation_verified=false, enrolled=false, nonce_bytes and
+signature_bytes. The signature flag/counts concern only the explicit ACS nonce
+proof; internal consistency checks do not set them. `failed` uses instrumentation
+code1; `no_identity`, `ready` and `signed` use code0. A volatile key can have been
+created before persistence fails; that failure is not a usable stored identity.
+Check the full instrumentation result, status, terminal code and host exit code.
+No private/public key, fingerprint, signature, tag or nonce value leaves the result.
+
+On 2026-10-19 the same-signer lab update preserved own check-in credentials.
+Initial inspection found no MLS identity. The first sign persisted both pairs and
+verified a labeled proof for a synthetic nonce. After force-stop, inspection found
+the same stored identity; another fresh process verified a different synthetic
+nonce without creating keys. Private key bytes were not read by the host or
+exported. The actual APK also contained the separate private VM diagnostic; this
+directory's minimal combined build has compile/DEX checks, not a separate install.
+The phone still had microG installed. Server enrollment, a no-GApps ROM test and
+accepted RCS provisioning remain open.
+
+Pure selfchecks cover literal RFC9420 short/64/16384-byte length vectors,
+record round trips, truncation/corruption/baseline/tag/curve errors, same-curve
+participant and device pair mismatches, and wrong-content/raw-nonce signature
+rejection. All test keys are synthetic; no app state is loaded by selfchecks.
+
 ## Provenance
 
 The bounded codec is independently written from microG's
@@ -107,3 +164,5 @@ Transport behavior was compared with its original
 The pinned source has Apache-2.0 headers; [LICENSE](LICENSE) retains the license
 and the codec header records attribution and changes. No VM binary, API key,
 profile builder or other app's credentials are included.
+The independently written MLS diagnostic follows the bounded local first-use
+contract described in [the research record](../../docs/research/gapps-bootstrap.md).
