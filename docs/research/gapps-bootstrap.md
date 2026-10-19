@@ -1305,6 +1305,64 @@ next authorized own-client transaction. Android VM/carrier integration, actual
 provider admission, registration, Google Messages exchange and physical vanilla
 ROM portability remain open.
 
+## 23. Ordinary Android Rust/JNI proof and TLS integration
+
+On 2026-10-19 an independently signed version 6 update of the existing lab APK
+preserved its check-in record and both persisted MLS identities. An ordinary
+own-UID instrumentation worker loaded only the existing SIM-scoped identity;
+missing, partial or invalid state fails without creation or replacement. The
+host still used read-only root SIM inventory to bind this lab operation. That
+does not establish ordinary-app subscription discovery or carrier authentication.
+
+The real Rust crate and a small private JNI host compiled for
+`aarch64-linux-android` with matching official Rust 1.99.1 compiler/standard
+libraries and NDK 27.0.12077973, API 29. The system's Arch compiler could not consume
+the official target metadata, so the matching toolchain stayed in the private
+research directory; system Rust was unchanged. The combined APK retained the
+previous app signer and data rather than reinstalling or registering again.
+
+Rust chose a fresh synthetic nonce longer than 64 bytes and synchronously called
+Java's new `MlsIdentity.signParticipantProof(byte[])` on the existing identity.
+Only participant SPKI DER and DER ECDSA signature arrays crossed JNI inside that
+app process. Private keys and their serialization stayed in Java/private storage.
+The new pure `acs::verify_mls_participant_proof` uses the same bounded verifier as
+direct/UPI submission, without requiring HTTP or a fabricated routing parameter.
+It independently accepted the genuine signature and rejected an altered nonce.
+Two fresh processes passed, with own check-in/MLS continuity verified before and
+after each operation. Diagnostic output contained fixed codes/booleans only.
+
+Android HTTPS required runtime packaging beyond a successful Rust build:
+
+- `rustls-platform-verifier 0.7.1` needs initialization with the actual own
+  application Context/classloader/JavaVM before TLS. JNI environments remain on
+  the calling thread; the verifier attaches its own threads through that VM.
+- Its pinned Android 0.2.0 Cargo shim contains no Java implementation. The
+  matching Maven AAR was pinned to upstream archive commit
+  `1aa691352a5e0c215210dfc9a3c2f2078639dc91` and verified before packaging.
+- The AAR's three Java classes require Kotlin runtime classes despite its POM
+  declaring no dependency. Installed Kotlin stdlib 2.2.10 covered all 13 referenced
+  classes and 17 exact method descriptors. D8 included the complete stdlib and
+  companion. The upstream network-security resource was compiled/linked into
+  the own manifest, retaining its narrow CA-revocation cleartext allowances and
+  base cleartext prohibition. No custom trust anchors or permissive verifier
+  were introduced.
+
+The second process then completed one bounded GET to the public HTTPS control
+`https://example.com/`, returning 200 through the initialized Rust/Android
+platform verifier. Redirects and automatic retries were disabled. This verifies
+the packaged TLS path for that control, not carrier routing or an ACS session;
+an invalid-certificate runtime control was not performed. TLS dependencies may
+log certificate errors; the fixed JNI result policy does not promise that all
+dependency logging is suppressed.
+
+These checks made zero carrier, ACS, VM-material or new check-in registration
+requests. Existing SDK attempt journals and the expired signed VM cache were
+untouched. The physical phone still had microG installed. No-GApps portability,
+independent admission, registration and Google Messages exchange remain unproven.
+Private source/build provenance and all three update/test outcomes are retained
+in `standalone-checkin-probe/rust-host-lifecycle-summary-20261019.json` under the
+platform audit directory; no key, proof, credential or private capture is a fixture.
+
 ## Next executable work
 
 1. Preserve the verified Rust discovery, initial ACS and consent paths, and
@@ -1339,6 +1397,10 @@ ROM portability remain open.
    VM creation and snapshot within the future authorized ACS transaction.
    Section22 now supplies the Rust direct request/context path; it still needs
    the real Android host's carrier, VM and persisted MLS operations in that run.
+   Section23 now proves the Rust/Java persisted signer boundary and a separate
+   packaged platform-TLS control on the ordinary APK. The real one-transaction
+   host still needs carrier authentication and fresh VM material within the
+   authorized exchange; the expired ten-second cache cannot supply it.
    Section20 adds durable own-app participant/device identity and locally verified
    labeled proofs; using that identity in an accepted ACS request remains open.
    The cellular direct-route comparison did not resolve the invalid config;

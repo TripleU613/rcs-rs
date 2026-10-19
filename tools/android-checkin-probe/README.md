@@ -127,7 +127,15 @@ identity when a prior creation intent exists, and retain the same own app signin
 key/data across updates. Existing or partial/corrupt state is never replaced.
 Both roles have private/public baselines and pair-consistency checks; file locking
 serializes writers, and file/directory fsync plus atomic rename precede ACS nonce
-signing. No reset, rotation, proof export or key export operation is provided.
+signing. No reset, rotation or diagnostic proof/key export operation is provided.
+
+`MlsIdentity.signParticipantProof(byte[])` is an in-process host API for an already
+reloaded identity. It returns two owned arrays: participant SPKI DER and the
+locally verified SHA256/ECDSA DER signature. It never loads, creates or updates
+an identity and never returns private keys. Keep those public proof arrays inside
+the app's transaction, clear them after use, and exclude them from diagnostic
+results/logs. Rust's `acs::verify_mls_participant_proof(nonce, spki, signature)`
+checks the exact labeled nonce independently, without HTTP or `home_kds`.
 
 Bundle key `standalone_mls` contains schema_version1, mode/stage/status enums,
 own_context, ordinary_uid, own_checkin_present, identity_present,
@@ -149,6 +157,15 @@ exported. The actual APK also contained the separate private VM diagnostic; this
 directory's minimal combined build has compile/DEX checks, not a separate install.
 The phone still had microG installed. Server enrollment, a no-GApps ROM test and
 accepted RCS provisioning remain open.
+
+A later same-signer lab update loaded this existing identity in an ordinary
+app process and called the proof API through JNI. The Android-compiled Rust
+library verified the real Java signature and rejected an altered nonce in two
+fresh processes. The same host initialized Android platform TLS and completed
+one separate public HTTPS control. No carrier, ACS or VM-material request was
+made by these checks. The private combined integration APK includes additional
+JNI/TLS packaging; the minimal build above is unchanged. See the
+[integration evidence and packaging limits](../../docs/research/gapps-bootstrap.md#23-ordinary-android-rustjni-proof-and-tls-integration).
 
 Pure selfchecks cover literal RFC9420 short/64/16384-byte length vectors,
 record round trips, truncation/corruption/baseline/tag/curve errors, same-curve

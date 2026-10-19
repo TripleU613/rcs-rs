@@ -11,7 +11,7 @@ use std::{
 };
 
 mod upi;
-pub use upi::{MlsProof, UpiChallenge, UpiParameters};
+pub use upi::{MlsProof, UpiChallenge, UpiParameters, verify_mls_participant_proof};
 mod direct_binding;
 pub use direct_binding::{DirectBindingParameters, DirectBindingV2};
 mod direct;

@@ -172,6 +172,13 @@ private VM input map and the trimmed MLS nonce/signing bytes. Its consuming
 and submits one multipart POST to the same configured path. VM execution and
 carrier authentication remain the Android host's responsibility.
 
+`acs::verify_mls_participant_proof(nonce, spki_der, signature_der)` also checks an
+owned labeled signature without an HTTP exchange or routing configuration.
+An ordinary Android lab APK has used this Rust function through JNI with its
+existing Java identity and passed a separate platform-verified HTTPS control.
+This establishes host integration, with admission and vanilla-ROM portability
+still unproven; see the [integration record](docs/research/gapps-bootstrap.md#23-ordinary-android-rustjni-proof-and-tls-integration).
+
 Supply actual configuration version/state, SMS port, device type and already
 formatted own-client metadata. Initial version/state/port0 are explicit inputs,
 not universal defaults. This bounded direct implementation excludes optional

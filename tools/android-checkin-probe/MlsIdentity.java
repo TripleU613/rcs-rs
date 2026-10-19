@@ -113,18 +113,33 @@ public final class MlsIdentity {
     }
     public boolean participantContinuity(){return reloaded;}
     public boolean deviceContinuity(){return reloaded;}
+    /**
+     * In-process/JNI public proof only: [cloned participant SPKI DER, cloned DER ECDSA].
+     * Caller owns both arrays; never export them to diagnostics, host files or logs.
+     * Requires an already-reloaded validated identity; never creates/loads/updates one.
+     */
+    public byte[][] signParticipantProof(byte[] exactNonceUtf8)throws IOException{
+        return signVerifiedParticipant(exactNonceUtf8,()->{});
+    }
     public ProofStats signAndVerify(byte[] nonce)throws IOException{return signAndVerify(nonce,()->{});}
     public ProofStats signAndVerify(byte[] nonce,Runnable verificationStage)throws IOException{
-        if(verificationStage==null)throw new IOException();
-        if(!reloaded)throw new IOException();byte[] content=signingInput(nonce),signature=null;
+        byte[][] proof=signVerifiedParticipant(nonce,verificationStage);
+        try{return new ProofStats(nonce.length,proof[1].length,true);}
+        finally{for(byte[] value:proof)Arrays.fill(value,(byte)0);}
+    }
+    private byte[][] signVerifiedParticipant(byte[] nonce,Runnable verificationStage)throws IOException{
+        if(!reloaded || verificationStage==null || nonce==null || nonce.length==0 || nonce.length>NONCE_MAX)throw new IOException();
+        byte[] exact=nonce.clone(),content=null,signature=null,spki=null;
         try{
+            content=signingInput(exact);
             Signature signer=Signature.getInstance("SHA256withECDSA");signer.initSign(participant.getPrivate());signer.update(content);signature=signer.sign();
             verificationStage.run();
             Signature verifier=Signature.getInstance("SHA256withECDSA");verifier.initVerify(participant.getPublic());verifier.update(content);
             if(signature.length==0 || signature.length>128 || !verifier.verify(signature))throw new IOException();
-            return new ProofStats(nonce.length,signature.length,true);
+            spki=participant.getPublic().getEncoded();if(spki==null || spki.length==0 || spki.length>1024)throw new IOException();
+            return new byte[][]{spki.clone(),signature.clone()};
         }catch(GeneralSecurityException invalid){throw new IOException();}
-        finally{Arrays.fill(content,(byte)0);if(signature!=null)Arrays.fill(signature,(byte)0);}
+        finally{for(byte[] value:new byte[][]{exact,content,signature,spki})if(value!=null)Arrays.fill(value,(byte)0);}
     }
     public static byte[] decodeNonce(String encoded)throws IOException{
         if(encoded==null || encoded.isEmpty() || encoded.length()>4*((NONCE_MAX+2)/3) || !encoded.matches("[A-Za-z0-9+/]+={0,2}"))throw new IOException();
@@ -169,6 +184,25 @@ public final class MlsIdentity {
         MlsIdentity first=create(tag);bad(()->first.signAndVerify("nonce".getBytes("UTF-8")));ByteArrayOutputStream storage=new ByteArrayOutputStream();first.writePrivate(storage);byte[] record=storage.toByteArray();
         MlsIdentity second=readPrivate(new ByteArrayInputStream(record),tag);
         check(second.participantContinuity()&&second.deviceContinuity());
+        byte[] proofNonce="new-own-callback-nonce".getBytes("UTF-8");
+        byte[][] actualProof=second.signParticipantProof(proofNonce);check(actualProof.length==2);
+        KeyFactory proofFactory=KeyFactory.getInstance("EC");
+        PublicKey proofPublic=proofFactory.generatePublic(new X509EncodedKeySpec(actualProof[0]));
+        Signature proofVerifier=Signature.getInstance("SHA256withECDSA");proofVerifier.initVerify(proofPublic);
+        proofVerifier.update(signingInput(proofNonce));check(proofVerifier.verify(actualProof[1]));
+        proofVerifier.initVerify(proofPublic);proofVerifier.update(signingInput("wrong-own-callback-nonce".getBytes("UTF-8")));check(!proofVerifier.verify(actualProof[1]));
+        byte[] changedSignature=actualProof[1].clone();changedSignature[changedSignature.length-1]^=1;
+        proofVerifier.initVerify(proofPublic);proofVerifier.update(signingInput(proofNonce));check(!proofVerifier.verify(changedSignature));
+        byte[] originalPublic=actualProof[0].clone();Arrays.fill(actualProof[0],(byte)0);Arrays.fill(actualProof[1],(byte)0);
+        byte[][] againProof=second.signParticipantProof("next-own-callback-nonce".getBytes("UTF-8"));check(Arrays.equals(originalPublic,againProof[0]));
+        proofVerifier.initVerify(proofFactory.generatePublic(new X509EncodedKeySpec(againProof[0])));
+        proofVerifier.update(signingInput("next-own-callback-nonce".getBytes("UTF-8")));check(proofVerifier.verify(againProof[1]));
+        bad(()->first.signParticipantProof(proofNonce));
+        bad(()->second.signParticipantProof(new byte[0]));bad(()->second.signParticipantProof(new byte[NONCE_MAX+1]));
+        bad(()->second.signParticipantProof(null));bad(()->second.signParticipantProof(new byte[]{(byte)255}));bad(()->second.signParticipantProof(new byte[]{10}));
+        int[] stageCalls={0};ProofStats staged=second.signAndVerify(proofNonce,()->stageCalls[0]++);
+        check(staged.verified&&stageCalls[0]==1&&staged.nonceBytes==proofNonce.length);
+        bad(()->second.signAndVerify(new byte[]{(byte)255},()->stageCalls[0]++));check(stageCalls[0]==1);
         ProofStats proof=second.signAndVerify("nonce".getBytes("UTF-8"));check(proof.verified&&proof.nonceBytes==5&&proof.signatureBytes>0);
         check(second.signAndVerify(n64).verified);check(second.signAndVerify(nMax).verified);
         ByteArrayOutputStream again=new ByteArrayOutputStream();second.writePrivate(again);check(Arrays.equals(record,again.toByteArray()));

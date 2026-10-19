@@ -298,20 +298,38 @@ impl UpiChallenge<'_> {
 
 impl MlsProof<'_> {
     pub(super) fn verify_nonce(&self, nonce: &str) -> Result<(), Error> {
-        // shortcut: observed P-256 proof only; add other suites when their negotiated format is established.
-        const PREFIX: &[u8] = &[
-            0x30, 0x59, 0x30, 0x13, 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, 0x06,
-            0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07, 0x03, 0x42, 0x00,
-        ];
-        let key = self
-            .public_key_der
-            .strip_prefix(PREFIX)
-            .filter(|k| k.len() == 65)
-            .ok_or(Error::InvalidInput("participant P-256 public key"))?;
-        ring::signature::UnparsedPublicKey::new(&ring::signature::ECDSA_P256_SHA256_ASN1, key)
-            .verify(&mls_signing_input(nonce), self.signature_der)
-            .map_err(|_| Error::InvalidInput("participant signature does not match nonce"))
+        verify_mls_participant_proof(nonce, self.public_key_der, self.signature_der)
     }
+}
+
+/// Verify an RFC9420 ACS participant proof independently of HTTP or routing configuration.
+/// Uses the exact UTF-8 nonce without trimming; accepts 1..=65536 bytes. The public
+/// key is P-256 SPKI DER and the signature is SHA-256/ECDSA DER. This checks key
+/// possession only, not identity, enrollment, attestation provenance or admission.
+pub fn verify_mls_participant_proof(
+    nonce: &str,
+    public_key_der: &[u8],
+    signature_der: &[u8],
+) -> Result<(), Error> {
+    if nonce.is_empty()
+        || nonce.len() > MAX_BODY
+        || signature_der.is_empty()
+        || signature_der.len() > 128
+    {
+        return Err(Error::InvalidInput("participant proof size"));
+    }
+    // shortcut: observed P-256 proof only; add other suites when their negotiated format is established.
+    const PREFIX: &[u8] = &[
+        0x30, 0x59, 0x30, 0x13, 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, 0x06, 0x08,
+        0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07, 0x03, 0x42, 0x00,
+    ];
+    let key = public_key_der
+        .strip_prefix(PREFIX)
+        .filter(|k| k.len() == 65)
+        .ok_or(Error::InvalidInput("participant P-256 public key"))?;
+    ring::signature::UnparsedPublicKey::new(&ring::signature::ECDSA_P256_SHA256_ASN1, key)
+        .verify(&mls_signing_input(nonce), signature_der)
+        .map_err(|_| Error::InvalidInput("participant signature does not match nonce"))
 }
 
 #[derive(Clone, PartialEq, prost::Message)]
