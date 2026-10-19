@@ -376,8 +376,8 @@ newer binding versions, the challenge. `fzab -> fugq -> fuha` selects SHA-384:
 `p(value, salt)` hashes UTF-8 `value + salt`, represented by the hash object's
 string form. For version >=2, the map additionally binds the salt hash,
 content-binding version, application name and available challenge/temporary
-SIM token. Exact surrounding wire encoding remains under investigation; no
-fabricated or transplanted attestation token was used.
+SIM token. Section19 records the recovered direct version-two wire encoding;
+no fabricated or transplanted attestation token was used.
 
 **Observed live:** the existing Messages DroidGuard client, backed by microG,
 completed flow `rcs_provisioning` with a version-2 content-binding map made from
@@ -1082,6 +1082,49 @@ Private evidence: `standalone-checkin-probe/vm-lifecycle-summary-20261019.json`,
 The vendor VM, bootstrap configuration, own signing key and app-private state
 remain outside Git.
 
+Subsequent inspection of that exact VM APK found a root-level ARM64 native
+library, despite having no conventional `lib/<ABI>/` entries. Its five-argument
+constructor selects the vendor's `GMS_CORE` runtime mode; distinct in-app paths
+also exist. Thus the own Context result must not be described as a demonstrated
+standalone vendor runtime mode or as physical no-GMS compatibility. The native
+interpreter and its downloaded bytecode remain dependency boundaries.
+
+## 19. Rust direct version-two proof binding
+
+`acs::DirectBindingV2` now builds the direct-TS43 binding independently. It takes
+the actual own app package, own logical session UUID, configured request
+identifiers, exact GET cookie value and challenge, and genuine carrier temporary
+token. A fresh UUID salt stays in the same binding instance for map construction
+and proof encoding. Unavailable identifiers are omitted; required direct-route
+context is rejected when empty or malformed. This does not grant ordinary apps
+access to privileged SIM identifiers or carrier authentication.
+
+The static reference is `ejtc.o/p/n` and `fzaa` from the Messages artifact above.
+`fzab -> fugq -> fuha` selects SHA-384, and the inherited `fugl.toString()` formats
+48 digest bytes as 96 lowercase hex characters. The map hashes UTF-8 value+salt;
+DROIDGUARD_SALT hashes only the salt. APP_NAME hashes the own package, never the
+reference package. This direct branch includes neither a Constellation number
+credential nor a GMS IID token. Its format differs from the UPI V1 helper.
+
+The raw bytes from the matching genuine `rcs_provisioning` VM snapshot first
+become unpadded, unwrapped Base64URL (`efxp.a`, Android flags11). The V2 protobuf
+contains only integer field1=2, string field2=that result and string field3=the
+same raw salt; `ejtc.n` returns before adding V1's plaintext binding fields.
+`ejwb` then encodes the protobuf with standard padded Base64 without wrapping
+(flags2). That text is the value for multipart part
+`client_authenticity_result_` plus the same GET's method ID. The matching carrier
+token, cookies, request metadata and separate MLS nonce proof remain the
+transport caller's responsibility.
+
+Seven new offline regressions cover independent Python SHA-384/manual-protobuf
+vectors, available-field omission, each session input and fresh salt, both
+Base64 alphabets and outer padding, incomplete input and snapshot rejection,
+and redacted diagnostics. The helper neither runs the VM nor verifies the
+snapshot's provenance or acceptance; it makes no HTTP request. Its 64-KiB raw
+snapshot bound is a host limit, not a recovered server limit. No live ACS request
+was made for these tests. The response-derived retry gate in section16 remains
+unchanged, and own-caller provisioning remains unproved.
+
 ## Next executable work
 
 1. Preserve the verified Rust discovery, initial ACS and consent paths, and
@@ -1108,6 +1151,10 @@ remain outside Git.
    Section17 adds an independent ordinary-app check-in identity; section18 adds
    direct own-context VM execution. Provider admission and physical portability
    without GApps/microG still need proof.
+   Section19 supplies the recovered direct V2 Rust binding/encoding; connecting
+   it to a fresh genuine own-context snapshot and authorized ACS session remains
+   untested. The diagnostic host retained its VM APK but no reusable signed
+   envelope/bytecode, so it cannot reconstruct that handle from the APK alone.
    The cellular direct-route comparison did not resolve the invalid config;
    legacy cellular timeouts remain inconclusive. Keep UPI's verification throttle
    separate; the research probes have no automatic retry loop or scheduled

@@ -12,6 +12,8 @@ use std::{
 
 mod upi;
 pub use upi::{MlsProof, UpiChallenge, UpiParameters};
+mod direct_binding;
+pub use direct_binding::{DirectBindingParameters, DirectBindingV2};
 
 const AUTH_MEDIA_TYPE: &str = "application/vnd.gsma.cfg-clientauth+xml";
 const AUTH_NS: &str = "urn:gsma:params:xml:ns:cfg:clientauth:req";
