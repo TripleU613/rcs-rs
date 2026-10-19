@@ -1184,6 +1184,66 @@ Private evidence: `static/rcs_runtime/ordinary-mls-identity-contract.md` and
 build/controller/run artifacts beside them. Live app-private keys remain only on
 the phone.
 
+## 21. Signed VM material retention and observed ten-second cache lifetime
+
+The ordinary own-app host now retains the exact RSA-authenticated envelope,
+matching inline VM APK/bytecode, and private context/receipt metadata when the
+signed save/expiry policy permits it. Pinned microG source treats omitted save as
+allowed, explicit false as unsaved, and positive expiryTimeSecs as a duration from
+storage, with exclusive expiry. The own cache additionally requires the same
+package/check-in identity, flow/version/fingerprint, boot and nondecreasing wall
+and elapsed clocks. Both clocks must remain before expiry. Rereads verify the
+original signed bytes again; a corruption checksum does not authenticate local
+metadata against the owner or root. minWait/maxWait remain unconsumed fields with
+unresolved units in the bounded source.
+
+Executable provenance covers both the APK and its embedded native library. The
+observed vendor loader may load an existing sibling `lib<selector>.so` without
+checking its content. The host therefore authenticates the APK with real apksig
+verification and the vendor certificate pin, validates its root library selector
+and ARM64 ELF entry, and stages the exact APK/library in a new exclusive private
+directory. Files are read-only, the completed directory is non-writable, and both
+hashes are checked before and after execution. No shared old library is reused.
+The five-argument vendor constructor and its GMS_CORE enum remain unchanged.
+
+Actual phone observations on 2026-10-19:
+
+- Same-signer version4 update preserved own check-in credentials and both MLS
+  identity roles; the initial inspection made no request and found no cache.
+- One separately journaled normal factory operation returned HTTP200 with
+  449218 decoded bytes and no Retry-After. The original one-off bootstrap journal
+  was preserved. Signature, save/expiry eligibility, private persistence/reread,
+  APK/native provenance, initialization, an opaque 28456-byte snapshot and close
+  all succeeded. No snapshot or private key bytes were exported.
+- A later fresh-process snapshot stopped at EXPIRED without HTTP or VM loading.
+  A same-signer version5 diagnostic update preserved the same identities and
+  reported the signed cache duration as **10 seconds**, again with no request.
+  This establishes retention and expiry enforcement, not successful cached VM
+  execution in a second process. The fresh operation's private reread succeeded.
+
+The ten seconds are the material-cache duration; they are not an established
+proof-acceptance lifetime. The inspected SDK checks cache eligibility when
+creating a handle, rather than on every snapshot of an initialized handle.
+Future authorized ACS work must keep the genuine create/init/snapshot path in
+the actual transaction. Receipt timestamps must not be refreshed to revive this
+expired record. Both permanent fetch journals remain intact; there is no retry,
+identity reset or fallback fetch in response to the expired-cache result.
+
+The [public Java helpers](../../tools/android-vm-materials/README.md) are exact
+copies of the tested bounded codecs/native-entry inspector. Independent public
+compilation and synthetic checks cover 385 wire/signature, 782 cache and 42
+native-archive rejection cases. Host build checks also retain the check-in/MLS
+selfchecks. Source review covered the host, controller, manifest, cache and
+native staging. The public helpers alone neither build the private Android
+harness nor perform network/VM execution.
+
+Private evidence: `static/carrier-static/own-vm-cache-policy.md`,
+`static/carrier-static/actual-vm-dependencies.md` and
+`standalone-checkin-probe/vm-session-lifecycle-summary-20261019.json`, with frozen
+version4/version5 source/build/controller artifacts beside it. The phone still
+has microG installed; physical no-GApps portability, server attestation
+acceptance, provisioning, registration and Google Messages exchange remain open.
+
 ## Next executable work
 
 1. Preserve the verified Rust discovery, initial ACS and consent paths, and
@@ -1212,8 +1272,10 @@ the phone.
    without GApps/microG still need proof.
    Section19 supplies the recovered direct V2 Rust binding/encoding; connecting
    it to a fresh genuine own-context snapshot and authorized ACS session remains
-   untested. The diagnostic host retained its VM APK but no reusable signed
-   envelope/bytecode, so it cannot reconstruct that handle from the APK alone.
+   untested. The section18 one-off host retained only its APK; section21 now
+   retains the signed envelope/bytecode association, but the observed ten-second
+   cache lifetime expired before another process could execute it. Keep genuine
+   VM creation and snapshot within the future authorized ACS transaction.
    Section20 adds durable own-app participant/device identity and locally verified
    labeled proofs; using that identity in an accepted ACS request remains open.
    The cellular direct-route comparison did not resolve the invalid config;
