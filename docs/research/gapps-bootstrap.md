@@ -791,6 +791,58 @@ evidence directory.
 Private evidence: `runtime/native-engine-20261016/` and
 `runtime/baseline-local-20261016/`. Tokens and subscriber identifiers stay private.
 
+## 15. Native request and owned-key signing controls
+
+The following laboratory controls narrow the client-side differences. They do
+not establish accepted provisioning, a working RCS session, or admission for an
+ordinary APK without Google services.
+
+| Control | Observed result | Limit |
+| --- | --- | --- |
+| Native request providers from the existing Messages application graph, with the actual selected SIM and cached ACS origin | Native GET returned HTTP200 and a 315-byte client-authenticity challenge on 2026-10-16 | A challenge is not an accepted configuration. The isolated observer did not apply the response. |
+| Fresh carrier EAP exchange on 2026-10-16 using the owned SIM through the installed entitlement library in the existing Phone process | Challenge GET, SIM-response relay and temporary-token operation each returned HTTP200; a nonempty temporary token was returned | This used a privileged laboratory adapter. Its decoded future expiry claim was diagnostic, not JWT signature validation. The historical token must not be reused after expiry. |
+| Subsequent paired-request preparation on 2026-10-16 | A fresh native GET returned HTTP200; the native parser, cookie handling and version-2 binding produced the expected nine map entries | The signing harness then failed before DroidGuard or POST. The complete paired request was not exercised. |
+| Synthetic signing-only control on 2026-10-19 | A new volatile P256 key signed the synthetic nonce through the native signer; phone JCA verification and independent host verification passed, and changed content was rejected | This exercised an owned test key, not Messages' persisted participant identity or server enrollment. The harness invoked zero HTTP requests. |
+
+The native HTTP control used a separate connection factory and transport with
+real dependencies, a validated Internet `Network`, normal TLS trust, and an
+isolated observer whose configuration-processing branch was disabled. Its
+connection hook checked the owned HTTPS authority and disabled redirects before
+the explicit network operation. Response bodies were bounded and captured
+privately, with streams closed and connections disconnected. Later cookie
+capture preserved each actual header-list element for native parsing.
+
+The existing Messages `:rcs` process crashed during one preparation attempt,
+with stack frames in the request-builder provider; it restarted. Another reported a transport
+error without an HTTP status. A later GET succeeded. These observations do not
+identify the ART crash or transport failure's root cause, and are not evidence
+of server admission rejection. The installed Messages base hash was rechecked
+against the analyzed artifact after the crash and again on 2026-10-19.
+
+The signing harness required reflected access to the native signer interface
+and an explicit `java.security.Key` cast for its inherited `getEncoded` method.
+The final output was canonical, unpadded Base64URL containing a P256 SPKI public
+key and DER ECDSA signature. The signing input used the actual native
+`ACS_Participant_Key_Proof` label with a synthetic nonce long enough to exercise
+the two-byte MLS length prefix. No persisted app identity was exported, created
+or replaced by this control.
+
+Owned debugging processes, forwards and output files were removed after the
+captured controls. Where recorded, one RCS storage file's hash was unchanged at
+return and its recovery backup was absent; this does not prove that every app
+preference, telemetry store or background task was unchanged. The harness did
+not call activation callbacks, configuration application, UPI verification,
+SIP registration or messaging. The native DroidGuard wrapper and complete
+native multipart POST remain unverified in this sequence. Success producing a
+signature or a DroidGuard snapshot would not itself prove server admission.
+
+Private evidence under `runtime/platform-auth-audit-20261016/`:
+`native-direct-get-summary.json`, `native-direct-carrier-20261016/summary.json`,
+the `native-direct-coupled-20261016*` control summaries, and
+`native-owned-mls-selfcheck-20261019-02/summary.json` with its independent
+`host-verification-summary.json`. Actual challenges, cookies, identifiers,
+tokens and request bodies remain outside Git.
+
 ## Next executable work
 
 1. Preserve the verified Rust discovery, initial ACS and consent paths, and
@@ -808,6 +860,8 @@ Private evidence: `runtime/native-engine-20261016/` and
    differences. Current captures do not identify the rejecting server check.
    The native baseline above now separates missing local microG SDK services
    from the independent direct request's unresolved server admission failure.
+   Section15 adds successful native GET and owned-key signing controls; the
+   complete native paired request and normal MLS-provider enrollment remain open.
    The cellular direct-route comparison did not resolve the invalid config;
    legacy cellular timeouts remain inconclusive. Keep UPI's verification throttle
    separate; the research probes have no automatic retry loop or scheduled

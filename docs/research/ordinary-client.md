@@ -203,6 +203,21 @@ or authentication response followed. The query does not establish that these
 profile fields, proxy or omitted registration/security context form an accepted
 AKA route.
 
+The selected external Carrier Services APK was audited separately: package
+`com.google.android.ims`, version31153903
+(`carrierservices.android_20250826_00_RC00.phone`), SHA256
+`9072f0f010132757f0efa5ad759269667ed2c982633204c01ba4e48c71eecee4`.
+Its standalone path constructs configured MD5 Digest; no AKA dispatch or direct
+ICC-auth call was recovered in the bounded whole-APK reference scan. Its other
+path uses Android SipDelegateManager and framework registration/security context.
+A later field-only runtime read found one initialized RcsEngineProxyImpl whose
+existing engine type was `DUAL_REG`. It invoked no initialization, registration
+or network method. Thus external-service selection and the forensic profile's
+single-registration flag do not establish active Android single registration.
+The existing Carrier Services engine is selected for its standalone path; this
+is not an accepted configuration or evidence that it can use that forensic AKA
+profile.
+
 The `auth-init` calculation is source-backed reference behavior: Messages APK
 version324451063, SHA256
 `2f666c55f129da84e1606d06e183ee08faf2b560d5a53cb44835007b4a97b159`.
@@ -225,7 +240,9 @@ Private evidence: `ims-pco-summary.json`, `ims-mark-summary.json`,
 `ims-register-aka-initial-verification-summary.json`; source reports in
 `static/rcs_runtime/auth-init/`, `static/rcs_runtime/pcscf-public-api-findings.md`
 and `static/rcs_runtime/config-identity-followup.md`, plus
-`static/native-routing/`. The native client can return success if connecting
+`static/carrier-static/external-aka-followup.md` and
+`carrier-engine-inventory-summary.json`, plus `static/native-routing/`.
+The native client can return success if connecting
 to its fwmark daemon fails; therefore successful Java binding alone was weaker
 evidence than the later socket-mark read-back. Exact daemon policy is unaudited.
 All completed runs restored the original APK, removed private inputs and retained
