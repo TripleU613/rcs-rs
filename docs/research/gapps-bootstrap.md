@@ -803,6 +803,7 @@ ordinary APK without Google services.
 | Fresh carrier EAP exchange on 2026-10-16 using the owned SIM through the installed entitlement library in the existing Phone process | Challenge GET, SIM-response relay and temporary-token operation each returned HTTP200; a nonempty temporary token was returned | This used a privileged laboratory adapter. Its decoded future expiry claim was diagnostic, not JWT signature validation. The historical token must not be reused after expiry. |
 | Subsequent paired-request preparation on 2026-10-16 | A fresh native GET returned HTTP200; the native parser, cookie handling and version-2 binding produced the expected nine map entries | The signing harness then failed before DroidGuard or POST. The complete paired request was not exercised. |
 | Synthetic signing-only control on 2026-10-19 | A new volatile P256 key signed the synthetic nonce through the native signer; phone JCA verification and independent host verification passed, and changed content was rejected | This exercised an owned test key, not Messages' persisted participant identity or server enrollment. The harness invoked zero HTTP requests. |
+| Complete native-helper request on 2026-10-19, after a fresh carrier exchange | Native GET returned HTTP200; genuine native DroidGuard computation, verified owned-key signing and native multipart construction completed; POST returned HTTP200 with a 453-byte version-0 document and no applications | The response was unusable. This closes the native HTTP/proof-encoder execution gap; normal MLS-provider enrollment and the reason for the unusable response remain unresolved. |
 
 The native HTTP control used a separate connection factory and transport with
 real dependencies, a validated Internet `Network`, normal TLS trust, and an
@@ -827,21 +828,56 @@ key and DER ECDSA signature. The signing input used the actual native
 the two-byte MLS length prefix. No persisted app identity was exported, created
 or replaced by this control.
 
+The complete request used the same fresh challenge, session, cookie, carrier
+temporary token and native version-2 binding instance through proof computation
+and transmission. Its identifier and cookie metadata matched that binding, and
+the current native home-KDS flag supplied the routing hint. Multipart assembly
+also needed a `dmox` view of the native builder because its concrete `dmol.b`
+field hid the inherited `b(String,String)` method from the Frida wrapper. A
+synthetic two-part construction passed before the complete attempt.
+
+The returned document reports validity86400 and
+`INVALID_CONFIG_REASON_UNSPECIFIED`, matching the earlier invalid-response
+pattern. It gives no specific attestation, subscriber or enrollment verdict.
+Producing a genuine DroidGuard snapshot does not show that the server accepted
+its contents. The harness applied no response and scheduled no retry after this
+unusable configuration. The retained owned-key-versus-normal-MLS-provider difference
+prevents claiming complete activation parity.
+
+Follow-up local inspection found no matching loaded store in `:rcs`. An ordinary
+settings read there failed with a null-pointer exception; source inspection
+also found that the database requires the normally initialized primary process.
+The existing main process was Android-frozen. After bringing Messages to the
+foreground through its normal launcher, the same metadata read succeeded and
+returned no `1_2` participant/device-key entry. This describes the returned
+settings view; an empty/default result does not prove that no identity exists
+elsewhere or that a persisted row parsed successfully. The helper invoked no
+signer, key-generation, settings-update or HTTP API. Opening the app can allow
+its own background work, which this probe did not account for. No process guard
+or retry-state override was applied. These results do not identify the server's rejecting
+check or establish a need to replace keys.
+
 Owned debugging processes, forwards and output files were removed after the
 captured controls. Where recorded, one RCS storage file's hash was unchanged at
 return and its recovery backup was absent; this does not prove that every app
 preference, telemetry store or background task was unchanged. The harness did
 not call activation callbacks, configuration application, UPI verification,
-SIP registration or messaging. The native DroidGuard wrapper and complete
-native multipart POST remain unverified in this sequence. Success producing a
-signature or a DroidGuard snapshot would not itself prove server admission.
+SIP registration or messaging. The completed native multipart POST did not
+yield subscriber credentials or establish a usable RCS session.
 
 Private evidence under `runtime/platform-auth-audit-20261016/`:
 `native-direct-get-summary.json`, `native-direct-carrier-20261016/summary.json`,
 the `native-direct-coupled-20261016*` control summaries, and
 `native-owned-mls-selfcheck-20261019-02/summary.json` with its independent
-`host-verification-summary.json`. Actual challenges, cookies, identifiers,
+`host-verification-summary.json`. The completed attempt is in
+`native-direct-coupled-20261019-02/`, with the fresh carrier result in
+`native-direct-carrier-20261019/`. Actual challenges, cookies, identifiers,
 tokens and request bodies remain outside Git.
+The identity checks are retained in
+`native-mls-identity-cache-20261019/`,
+`native-mls-identity-cache-main-20261019/` and the
+`native-mls-stored-identity-metadata-20261019*` summaries. The completed primary
+process read is in `native-mls-stored-identity-metadata-main-20261019/`.
 
 ## Next executable work
 
@@ -860,8 +896,8 @@ tokens and request bodies remain outside Git.
    differences. Current captures do not identify the rejecting server check.
    The native baseline above now separates missing local microG SDK services
    from the independent direct request's unresolved server admission failure.
-   Section15 adds successful native GET and owned-key signing controls; the
-   complete native paired request and normal MLS-provider enrollment remain open.
+   Section15 adds a completed native paired request that still returned an
+   invalid configuration; normal MLS-provider enrollment remains untested.
    The cellular direct-route comparison did not resolve the invalid config;
    legacy cellular timeouts remain inconclusive. Keep UPI's verification throttle
    separate; the research probes have no automatic retry loop or scheduled
