@@ -878,7 +878,8 @@ captured proof. Offline tests cover session propagation, empty-proof and
 routing-hint failures, and signature/framing rejection. This candidate has not
 made a live request. The controller checks the native retry cache, and the
 candidate rechecks the on-disk deadline immediately before each HTTP operation;
-a missing, invalid or future deadline stops the attempt.
+a missing, invalid or future deadline stops the attempt. The host also checks
+the prior invalid reply's separate freshness policy, described in section 16.
 
 A separate read on 2026-10-19 found native `RetryState`, retry count14, last
 attempt `2026-10-18T22:06:35Z` and next attempt `2026-10-19T22:06:35Z`.
@@ -915,6 +916,69 @@ Strict row results are in `native-mls-strict-row-metadata-main-20261019/` and
 independent verification are in `native-normal-mls-selfcheck-main-20261019/`.
 The dated retry state is in `normal-provisioning-cache-20261019/summary.json`.
 
+## 16. Ordinary caller and invalid-response freshness
+
+The installed compatible GMS APK was recovered again on 2026-10-19 and matched
+the digest in section 11. Its version is `0.3.17.252432`, code `252432034`, below
+the Messages direct-TS43 local requirement `254500000`. In this APK, Constellation's
+service action resolves to a dummy service; the inspected inventory did not
+establish a service-entitlement implementation. DroidGuard has an exported
+implementation in the unstable process. These local service differences do not
+identify the cause of the separate completed ACS request's invalid response.
+
+An independently signed ordinary diagnostic APK loaded the installed
+DroidGuard client classes and passed their public ABI check. One explicit call
+then used the one-argument Context constructor, its actual own package in
+APP_NAME, a synthetic input and the normal `getResults` API. It completed with a
+32,019-byte encoded opaque result without the source-known local-error prefix. Only fixed
+metadata was exported; the test host was stopped afterward. No carrier, ACS,
+number-verification or MLS API was invoked by this probe. SDK internals could
+perform their own network work. This establishes ordinary-caller SDK execution,
+not an accepted attestation, usable subscriber configuration or operation
+without microG. No Google caller package or signing identity was supplied.
+Snapshot execution still goes through Binder to microG's service; this does
+not establish VM execution under the diagnostic app's own Context.
+
+A separate root-assisted metadata read found all ten inspected String fields
+in the already active microG Build profile equal to `android.os.Build` in that
+process: MODEL, MANUFACTURER, BRAND, DEVICE, PRODUCT, FINGERPRINT, ID, TYPE, TAGS
+and HARDWARE. The read did not initialize, apply or replace a profile. It does
+not establish every profile field, account state, hardware attestation, or a
+server verdict.
+
+The prior version-zero reply also has a timing effect that the older native
+retry timestamp alone cannot represent. `ejug.a` retains validity `86400` and
+records a new last-update time when applying this response. Configuration
+`ad()` uses `validity - max(validity/10, 25200)` for that validity, without a
+positive-version condition; `ejtj.i()` prevents ordinary provisioning
+progression while the configuration remains fresh. The resulting threshold is
+61,200 seconds, or 17 hours. Full validity is 24 hours; that is not evidence of a
+server-enforced 24-hour throttle or an automatically scheduled retry.
+
+Our harness did not apply its response to Messages. Its saved capture-write
+upper bound was `2026-10-19T15:52:52.785434Z`, later than the request start.
+Rounding upward gives a response-based earliest manual attempt of
+`2026-10-20T08:52:53Z`, subject to any later applicable native or HTTP gate.
+The saved GET and POST contain no Retry-After header. The native worker's
+previously recorded October 19 deadline remains a separate observation.
+
+The host now validates the retained JSON/base64/XML response and receipt bound
+before permitting the full candidate. Reviewed capture digests and the exact
+receipt timestamp are pinned; a new or changed capture requires review,
+including a GET-only response. It stops on the fresh response, malformed
+evidence or a Retry-After header needing review. Synthetic checks and an offline
+check against the retained response confirmed that an early attempt stops
+without device or HTTP calls. No new
+manual ACS request was made for these checks; the full normal-key candidate
+remains unexecuted.
+
+Private evidence: `installed-gms-metadata-20261019/summary.json`,
+`static/gms_discovery_review/installed-microg-252432034/`,
+`ordinary-droidguard-probe/runs/`, `dg-profile-metadata-*`, and
+`prior-invalid-reply-policy-verification-20261019.json` under the runtime audit
+directory. The source trace is in
+`static/gms_discovery_review/invalid-config-retry-policy.md`.
+
 ## Next executable work
 
 1. Preserve the verified Rust discovery, initial ACS and consent paths, and
@@ -935,7 +999,9 @@ The dated retry state is in `normal-provisioning-cache-20261019/summary.json`.
    Section15 adds a completed native paired request that still returned an
    invalid configuration. The normal MLS provider now produces a verified
    synthetic proof and persists its keys locally. Its coupled server request
-   remains untested and must respect a fresh native retry deadline.
+   remains untested and must respect both the prior response's freshness and
+   a fresh native retry deadline. The ordinary-caller SDK control in section 16
+   still depends on microG and does not satisfy the vanilla-ROM requirement.
    The cellular direct-route comparison did not resolve the invalid config;
    legacy cellular timeouts remain inconclusive. Keep UPI's verification throttle
    separate; the research probes have no automatic retry loop or scheduled
