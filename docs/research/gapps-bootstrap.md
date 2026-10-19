@@ -979,6 +979,62 @@ Private evidence: `installed-gms-metadata-20261019/summary.json`,
 directory. The source trace is in
 `static/gms_discovery_review/invalid-config-retry-policy.md`.
 
+## 17. Independent ordinary-app check-in identity
+
+Original source at microG commit
+`ec206605ab97ada8369dade98ce822880f716033` closes part of the standalone-host
+dependency question. The focused source, module builds and Apache-2.0 license
+were retained and checked against the pinned Git tree's blob digests.
+`HandleProxy` uses Android/Kotlin and a small exception wrapper; the whole core
+module additionally imports profile, settings, broker and service dependencies.
+Its VM callback `GuardCallback.b()` reads CheckIn.ANDROID_ID and returns decimal
+Java-long text. Its random fallback is not an independently issued identity.
+This is separate from Android's app-scoped ID and the GServices field in section13.
+
+The original check-in client has a first-registration branch with androidId0,
+no security token, fragment0, version3 and one empty account cookie. Its HTTPS
+transport supplies no API key, OAuth token or Android caller-certificate header.
+The original builder also has profile, hardcoded device/default and diagnostic
+logging behavior that a truthful independent host must not inherit blindly.
+
+The new [ordinary check-in probe](../../tools/android-checkin-probe/README.md)
+implements that account-free branch with an independently signed APK, INTERNET
+permission only, actual accessible `android.os.Build` fields and its own
+User-Agent. It uses no GMS/microG, Messages, root, phone/SIM, account or shared-UID
+API. Before opening HTTPS it durably records its own attempt; a separate host
+intent prevents re-registration even after package loss. It accepts credentials
+only when both returned fixed64 values are nonzero and durable private storage
+has been reread. Neither credentials nor raw response data are exported.
+
+On 2026-10-19, exactly one explicit registration completed with HTTP200 and a
+374-byte decoded response. Both issued credential fields were saved. A separate
+inspection after stopping the app returned credentials-present without a network
+attempt, confirming persistence across that process boundary. The controller
+checked the owned device, installed APK digest, user0, complete instrumentation
+result and termination of only its own host. It did not call carrier, ACS,
+number verification, DroidGuard or messaging APIs. The other installed apps'
+background traffic is outside these probe counters.
+
+The source now skips repeated supported unknown response fields while keeping
+known singular fields duplicate-strict; that compatibility hardening passed
+offline wire tests after the runtime baseline. The retained signed APK was
+preserved with its original identity metadata. Current published source also
+has compile/DEX and malformed-wire checks; no captured credentials are fixtures.
+
+This establishes an independently issued check-in identity through ordinary
+Android APIs, not accepted RCS provisioning or an accepted DroidGuard proof.
+The phone still had microG installed; a physical no-GApps/no-microG portability
+test remains open. The next standalone VM step must use its actual own Context,
+legitimate bootstrap inputs and verified artifacts rather than profile changes,
+a random callback ID or another app's credentials. The normal-key ACS candidate
+and its response-derived wait in section16 remain unchanged.
+
+Private evidence: `static/upstream-droidguard-ec206605/source-manifest.json`,
+`static/rcs_runtime/standalone-droidguard-boundary.md`,
+`static/carrier-static/standalone-checkin-identity.md` and
+`standalone-checkin-probe/runs/` under the runtime audit directory. The host
+intent and Android app-private credentials remain outside Git.
+
 ## Next executable work
 
 1. Preserve the verified Rust discovery, initial ACS and consent paths, and
@@ -1002,6 +1058,8 @@ directory. The source trace is in
    remains untested and must respect both the prior response's freshness and
    a fresh native retry deadline. The ordinary-caller SDK control in section 16
    still depends on microG and does not satisfy the vanilla-ROM requirement.
+   Section17 adds an independent ordinary-app check-in identity; standalone VM
+   execution and provider admission still need proof.
    The cellular direct-route comparison did not resolve the invalid config;
    legacy cellular timeouts remain inconclusive. Keep UPI's verification throttle
    separate; the research probes have no automatic retry loop or scheduled
