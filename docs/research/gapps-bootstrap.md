@@ -1363,6 +1363,103 @@ Private source/build provenance and all three update/test outcomes are retained
 in `standalone-checkin-probe/rust-host-lifecycle-summary-20261019.json` under the
 platform audit directory; no key, proof, credential or private capture is a fixture.
 
+## 24. Cached VM callback and protected-data retention
+
+The version 7 own-APK update adds a direct-V2 callback for an existing verified
+material record. It validates the exact seven required hashed fields, optional
+IMSI/IMEI, own Context/ordinary UID/worker, existing check-in identity, own signer
+and the cache's signed envelope/context/boot/receipt clocks/TTL. Missing or
+authenticated nonREADY cache state yields a bounded typed reason. It has no
+fetch, old-envelope recapture, journal reset or automatic fallback operation.
+
+The shared `DirectVmBoundary` lifecycle returns raw snapshot bytes only after
+close, APK/native rehash and the final unsupported-callback check. Nested cleanup
+runs the latter checks even when close throws. Any failure wipes the snapshot;
+an error prefix or changed output after close also fails. The existing synthetic
+instrumentation path uses this same lifecycle and discards its raw bytes. The
+cached callback passes the caller's exact validated map rather than substituting
+the diagnostic's synthetic APP_NAME/probe_nonce map.
+
+The real Rust JNI negative control built seven synthetic V2 fields with the
+actual own Context package and omitted unavailable IMSI/IMEI. Java validated the
+map, then the actual callback rejected the existing signed cache with EXPIRED.
+The test requires that typed reason, one callback, seven fields and no returned
+snapshot; an unrelated JNI exception cannot count as success. No fresh VM
+material request or READY callback execution occurred. This proves the boundary
+and refusal path, not a genuine challenge-bound snapshot or admission.
+
+Review also strengthened the lab's data-retention evidence. Earlier checks
+established valid stored identities and pair consistency, without comparing an
+independent before/after record baseline. The version 7 controller now compares
+the complete regular-file set and SHA256 manifests of the protected files
+directory entirely on-device. Neither contents nor digests return to the host.
+Before/after update and callback comparisons both passed, including check-in,
+MLS, material-cache and attempt records. Root performs only this evaluation
+comparison and selected-SIM inventory; the APK still runs with its ordinary UID.
+Unique root-only comparison files are removed afterward. Synthetic device tests
+detected changed bytes, added files and symlinks, and verified cleanup after
+uncertain capture completion. This lab helper is not a shipping dependency.
+
+Pure Java tests include 31 direct-map/lifecycle rejection cases; the private
+controller includes 18 strict-result cases and six device-fixture cases. Frozen
+version 7 sources, native build provenance, APK identity and actual update/control
+results are retained in `standalone-checkin-probe/vm-bridge-lifecycle-summary-20261019.json`.
+Existing bootstrap/fetch journals and the expired ten-second cache remain intact.
+
+## 25. Source-backed SMS OTP route and its availability gap
+
+The retained legacy ACS client has a route that does not call SIM AKA:
+an actual received provisioning SMS leads to a same-base HTTPS GET with uppercase
+`OTP` and the saved cookies. It does not repeat initiation metadata or send a
+carrier temporary token. Initial IMSI/MSISDN requests, selected mobile-network
+header enrichment, privacy/consent gates and policy selection remain separate
+requirements. A server requiring IMSI still needs an authorized identifier source.
+The default SMS role's identifier access is distinct from ICC authentication.
+
+When the selected configuration enables proactive HTTP-GET DroidGuard, the OTP
+step requires a genuine V1 operation binding the own app, same logical session
+and JIBE cookie. Its headers carry the URL-safe raw snapshot and fresh salt;
+this is not the direct V2 multipart wrapper. The optional MLS proof signs the
+JIBE_ACS_COOKIE value as-is using ACS_Participant_Key_Proof. Query fields are
+`participant_public_key`, `signed_acs_data` and explicit `home_kds`, rather than
+`participant_key_signed_nonce`. Conditional native branches can omit DG or MLS;
+they do not establish that the provider accepts those omissions.
+
+Text SMS extraction uses the selected configured regex and first nonempty
+capture group. A positive configured data-SMS port instead consumes the complete
+concatenated UTF16 payload. There is no universal six-digit code rule. The host
+must associate the actual received subscription and session, preserve the code
+without numeric conversion/trim and enforce its deadline. The compiled local
+OTP wait is 360000ms; it is not a server expiry. A separate misleadingly named
+cache flag defaults to 30 but its consumer uses MINUTES, not seconds. No automatic
+cached-code replay is implemented here.
+
+The reference can enter its waiting state after an HTTP 200 configuration parse
+failure; this is a client transition, not an explicit server OTP offer. A new
+client must not label malformed configuration, a direct DG nonce/challenge or
+an invalid version 0 response as an OTP offer. No genuine associated OTP has been
+observed for this subscription. Current PDV evidence likewise selected TS43 or
+no pending method, without a server-selected SMS challenge. Policy flags and
+method selection must remain truthful; this is not a way around retry gates.
+
+The historical minimal discovery profile omitted GMS and selected direct TS43
+off and UPI disabled, which permits legacy selection. It had manual-number input
+disabled, a text-SMS pattern, port0 and discovery OTP timeout10s. That last field
+is distinct from the separately consumed local wait flag above. The recorded
+native profile with installed GMS selected direct TS43 and UPI without ACS
+fallback; its OTP/manual-input fields were not projected. These profiles cannot
+be merged or treated as fresh. Omitting actually installed GMS was a routing
+simulation, not physical no-GApps or own-client admission evidence. A genuinely
+GMS-free client needs its own truthful configuration and supported route.
+
+The private source note records exact methods and evidence. A normalized REA
+engine identity differs from the freshly verified pinned APK identity; the cause
+remains unresolved. Independent raw-DEX inspection of the pinned APK confirmed
+critical class/method/field references and timeout constants/units, without
+independently reconstructing every decompiler branch. Treat the full flow as a
+bounded implementation lead, not completed protocol parity or runtime success.
+No new carrier/ACS/verification request or SMS send accompanied this audit.
+
 ## Next executable work
 
 1. Preserve the verified Rust discovery, initial ACS and consent paths, and
@@ -1401,6 +1498,10 @@ platform audit directory; no key, proof, credential or private capture is a fixt
    packaged platform-TLS control on the ordinary APK. The real one-transaction
    host still needs carrier authentication and fresh VM material within the
    authorized exchange; the expired ten-second cache cannot supply it.
+   Section24 adds the cached-only VM callback and proves its EXPIRED refusal,
+   with exact on-device record retention across the own APK update. READY
+   callback execution remains open. Section25 identifies a source-backed OTP
+   alternative; actual policy selection and a genuine associated SMS are missing.
    Section20 adds durable own-app participant/device identity and locally verified
    labeled proofs; using that identity in an accepted ACS request remains open.
    The cellular direct-route comparison did not resolve the invalid config;

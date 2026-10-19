@@ -1,10 +1,12 @@
 # Signed VM material codecs
 
-Four Java8 helpers used by the ordinary own-app VM experiment. They implement
+Java8 helpers used by the ordinary own-app VM experiment. They implement
 bounded create-request/response protobuf, RSA-SHA256 verification of the exact
 signed response bytes, a private reusable-material record, and inspection of
-the observed vendor APK's root native-library resource. They perform no HTTP,
-VM execution, APK signature verification, attestation verification or RCS admission.
+the observed vendor APK's root native-library resource, plus a direct-map and
+owned-operation boundary. They perform no HTTP and supply no VM, APK signature
+verifier, attestation verifier or RCS admission. The lifecycle helper invokes
+the caller's supplied operation; its checks do not establish proof provenance.
 No VM binary, API configuration, captured material or app credentials are included.
 
 From this directory, with `VM_CLASSES` set to an empty private build directory:
@@ -12,10 +14,11 @@ From this directory, with `VM_CLASSES` set to an empty private build directory:
 ```sh
 umask 077
 mkdir -p "$VM_CLASSES"
-javac --release 8 -d "$VM_CLASSES" DroidGuardWire.java VmSignedResponse.java VmMaterialCache.java VmNativeArtifact.java
+javac --release 8 -d "$VM_CLASSES" DroidGuardWire.java VmSignedResponse.java VmMaterialCache.java VmNativeArtifact.java DirectVmBoundary.java
 java -ea -cp "$VM_CLASSES" org.rcsrs.standalonecheckin.VmSignedResponse
 java -ea -cp "$VM_CLASSES" org.rcsrs.standalonecheckin.VmMaterialCache
 java -ea -cp "$VM_CLASSES" org.rcsrs.standalonecheckin.VmNativeArtifact
+java -ea -cp "$VM_CLASSES" org.rcsrs.standalonecheckin.DirectVmBoundary
 ```
 
 These selfchecks use synthetic protobuf/ZIP inputs and ephemeral test keys. They
@@ -52,6 +55,26 @@ existing sibling library.
 Cache misses never trigger HTTP in these helpers. Retain attempt journals and
 actual service retry gates in the host. The signed minWait/maxWait fields are
 preserved; their units/consumption were not recovered in the bounded source.
+
+`DirectVmBoundary.directInputs` defensively copies the exact direct-V2 map:
+seven required fields and optional IMSI/IMEI, each a lowercase SHA384 hex value.
+Nulls, duplicates, unknown/reserved keys and malformed values fail. It neither
+rehashes values nor replaces `APP_NAME`. The Rust caller must use the real own
+Android package and the same binding/challenge/session for the later submission.
+
+`DirectVmBoundary.execute` owns one supplied operation through construct, init,
+snapshot and close. Artifact verification and an unsupported-callback check run
+even if close fails. Raw bytes return only after those checks and final output
+validation; failures wipe any returned snapshot. The host must perform genuine
+signature/context/cache verification and make close a no-op when no handle was
+constructed. This helper provides no loader, network fallback or cache refresh.
+Selfchecks exercise successful ordering and failures at each lifecycle stage,
+including close errors, post-close unsupported callbacks and changed output.
+
+The ordinary Android lab host now exposes a cached-only in-process callback using
+this boundary. Its JNI negative control passed with the authenticated expired
+record: no fetch, initialization or snapshot was used. READY callback execution
+remains untested. See the [runtime record](../../docs/research/gapps-bootstrap.md#24-cached-vm-callback-and-protected-data-retention).
 
 Wire/cache semantics were compared with pinned Apache-2.0 microG sources:
 [droidguard.proto](https://github.com/microg/GmsCore/blob/ec206605ab97ada8369dade98ce822880f716033/play-services-droidguard/core/src/main/proto/droidguard.proto),
