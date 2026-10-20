@@ -383,3 +383,26 @@ our independent caller and selected policy, successful Proceed, usable RCS
 credentials, registration and messaging. These additions do not bypass the
 retained provisioning retry deadline or remove the separate IID, proof,
 identifier, consent and backend-admission requirements of PDV.
+
+### Single real-SMS loopback attempt
+
+On 2026-10-20, the same independently signed capability APK was updated for one
+real carrier-SMS test. It requested `SEND_SMS` and `READ_PHONE_NUMBERS` for sending
+to its own line; `READ_SMS`, `RECEIVE_SMS` and Internet remained denied. The app
+read its own number from the selected subscription, registered a real token,
+and durably reserved an exclusive attempt record before calling `sendTextMessage`
+once. No Google verification or RCS endpoint was contacted.
+
+Android returned `Activity.RESULT_OK` to the sent callback. No token-receiver
+callback arrived within the test's 120-second deadline. A separate root-only
+diagnostic, restricted to the generated test message and its creation time,
+confirmed one sent-provider record and zero matching inbox/outbox records. SMS
+and data subscription settings matched. No number, token, body or SIM identifier
+was exported in diagnostic output.
+
+The result proves a real send submission, **not incoming SMS reception or
+delivery**. It does not establish whether self-SMS is supported on this line or
+identify the delivery failure. Both PendingIntents were cancelled; the attempt
+record remains, and no automatic resend occurs. A genuine reply from a separate
+phone is the next reception control. This test supplies no server MT_SMS offer,
+number-verification credential or RCS interoperability evidence.
