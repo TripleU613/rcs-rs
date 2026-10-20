@@ -245,6 +245,57 @@ fn proceed_ts43(ts43: &[u8]) -> Bytes {
     Bytes::from(field(1, &verification))
 }
 
+#[test]
+fn rejects_malformed_or_conflicting_mt_sms_challenges() {
+    let signature = field(1, b"synthetic-sms-signature");
+    let mt = field(6, &signature);
+    for challenge in [
+        vec![16, 2],
+        [vec![16, 2], field(6, &[])].concat(),
+        [vec![16, 2], field(6, &field(1, b""))].concat(),
+        [vec![16, 2], field(6, &signature.repeat(2))].concat(),
+        [vec![16, 2], mt.repeat(2)].concat(),
+        [vec![16, 2], mt.clone(), vec![16, 2]].concat(),
+        [vec![16, 3], mt.clone()].concat(),
+        [vec![16, 2], mt, field(12, &[])].concat(),
+        [vec![16, 2], field(6, &field(1, &[0xff]))].concat(),
+        [vec![16, 2], field(6, &field(1, b"synthetic\nprivate"))].concat(),
+        [vec![16, 2], field(6, &field(1, &vec![b'x'; MAX_TEXT + 1]))].concat(),
+    ] {
+        let record = [vec![16, 2], field(4, &field(2, &challenge))].concat();
+        assert!(
+            ProceedResponse::decode(Bytes::from(field(1, &record))).is_err(),
+            "malformed MT challenge was accepted"
+        );
+    }
+}
+
+#[test]
+fn mt_sms_keeps_original_record_and_redacts_its_matching_signature() {
+    let signature = b"synthetic-sms-signature";
+    let challenge = [vec![16, 2], field(6, &field(1, signature))].concat();
+    let record = [
+        vec![16, 2],
+        field(4, &field(2, &challenge)),
+        field(15, b"synthetic-unknown-field"),
+    ]
+    .concat();
+    let response = ProceedResponse::decode(Bytes::from(field(1, &record))).unwrap();
+    let verification = response.verification.as_ref().unwrap();
+    let mt = verification.mt_sms.as_ref().unwrap();
+    assert_eq!(verification.method, Some(2));
+    assert_eq!(mt.private_signature().as_bytes(), signature);
+    assert_eq!(verification.raw_protobuf(), record);
+    assert!(verification.ts43.is_none());
+    for debug in [
+        format!("{response:?}"),
+        format!("{verification:?}"),
+        format!("{mt:?}"),
+    ] {
+        assert!(!debug.contains("synthetic-"));
+    }
+}
+
 fn minimal_ts43(url: &str) -> Vec<u8> {
     let mut payload = field(1, &[8, 7]);
     payload.extend(field(2, url.as_bytes()));

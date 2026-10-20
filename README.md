@@ -117,7 +117,7 @@ genuine full-flow IID, checkin identity, owned public key and DroidGuard proof
 or a valid backend-issued cached token; the crate does not fabricate these.
 
 `verification::SyncResponse::decode` and `ProceedResponse::decode` inspect raw
-protobuf captures offline. They expose TS43 challenges and per-record failures,
+protobuf captures offline. They expose TS43 and incoming-SMS challenges and per-record failures,
 retain exact verification/context bytes, and redact private fields in diagnostics.
 They do not send verification requests or validate returned tokens. The decoder
 has also been checked against the private pending, failed and throttled captures.
@@ -127,6 +127,14 @@ SIM/caller facts. `verification::proceed_ts43_unsigned` submits a genuine full
 carrier JSON response while preserving the original verification/context bytes.
 It rejects public-key updates because signed follow-ups are not implemented.
 Neither function retries automatically or treats outer RPC success as verification.
+`InitialSync::mt_sms_token` must be `None` unless the host has a live SMS receiver:
+an empty string selects ordinary SMS reception metadata; otherwise supply the real
+Android app-specific token. The CLI supplies `None`, since it has no receiver.
+`verification::proceed_mt_sms_unsigned` submits one genuinely received matching
+SMS body and originator for an actual pending MT_SMS challenge. It preserves the
+original record and refuses key updates; the Android host still owns reception,
+subscription/session association and cancellation. Google offering this method
+to an independent caller remains unproven.
 `Verification::private_id_token` exposes the optional `id_token` parameter for
 the UPI provisioning step. It is unvalidated service data; its presence is not
 proof of verified identity, JWT validity or registration.

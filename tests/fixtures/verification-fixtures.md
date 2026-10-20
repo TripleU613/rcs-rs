@@ -26,6 +26,8 @@ No returned state/token is validated as proof that a phone number is verified.
 - `sync-request.bin`: independent initial request encoding, synthetic caller/SIM
   facts and proof, zero slot explicitly present, one IMSI request and SHA-256
   caller-session/IMSI nonce. Header version is GMS version code divided by 1000.
+  Its synthetic caller explicitly opts into empty-token noisy SMS receiver metadata;
+  the real CLI does not have a receiver and now omits this metadata.
 - `proceed-request.bin`: original `verification-pending.bin` preserved byte for
   byte, opaque context unchanged, full synthetic carrier JSON in
   ChallengeResponse9 -> TS43.temporary3 -> **TemporaryResponse.string2**,
@@ -33,6 +35,14 @@ No returned state/token is validated as proof that a phone number is verified.
   Original GMS `joty` declares its only string as field2; field1 was an earlier
   reconstruction error. These request fixtures use the original descriptor,
   not a round trip through the Rust encoder under test.
+
+Incoming-SMS tests independently frame synthetic method2/tag6 challenges and
+compare the reply's literal bytes against josx.tag1/joth={body1,sender2}, recovered
+from original GMS 26.37.37 joss/jotf/josx/joth and brxo/brxq. They preserve unknown
+Verification fields and the complete single-message body, including line breaks.
+The bounded decoder rejects empty matching signatures, although the reference's
+substring matcher does not. These are codec tests, not captured MT offers or
+evidence that Google accepted a verification SMS.
 
 - `read-numbers-request.bin`: independently encoded signed read-only request
   (`brad`, `joxl/joxn/joxp`): request session1, credentials2 with synthetic IID1,

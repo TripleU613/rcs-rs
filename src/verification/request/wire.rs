@@ -143,7 +143,17 @@ pub(super) struct Ts43Response {
 }
 #[derive(Clone, PartialEq, prost::Message)]
 #[prost(skip_debug)]
+pub(super) struct MtSmsResponse {
+    #[prost(string, tag = "1")]
+    pub body: String,
+    #[prost(string, tag = "2")]
+    pub sender: String,
+}
+#[derive(Clone, PartialEq, prost::Message)]
+#[prost(skip_debug)]
 pub(super) struct ChallengeResponse {
+    #[prost(message, optional, tag = "1")]
+    pub mt_sms: Option<MtSmsResponse>,
     #[prost(message, optional, tag = "9")]
     pub ts43: Option<Ts43Response>,
 }
@@ -174,6 +184,7 @@ redacted!(
     SyncRequest,
     TemporaryResponse,
     Ts43Response,
+    MtSmsResponse,
     ChallengeResponse,
     ProceedRequest
 );

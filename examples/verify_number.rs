@@ -136,6 +136,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         slot_index: session.slot_index,
         subscription_id: session.subscription_id,
         telephony: session.telephony.into(),
+        mt_sms_token: None,
     };
     let mut output = output_file(Path::new(&args[2]))?;
     if mode == "sync" {

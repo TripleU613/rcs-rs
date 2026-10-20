@@ -155,8 +155,17 @@ impl std::fmt::Debug for ChallengeContainer {
 pub(super) struct Challenge {
     #[prost(int32, packed = "false", repeated, tag = "2")]
     pub methods: Vec<i32>,
+    #[prost(bytes = "bytes", repeated, tag = "6")]
+    pub mt_sms: Vec<bytes::Bytes>,
     #[prost(bytes = "bytes", repeated, tag = "12")]
     pub ts43: Vec<bytes::Bytes>,
+}
+
+#[derive(Clone, PartialEq, prost::Message)]
+#[prost(skip_debug)]
+pub(super) struct MtSmsChallenge {
+    #[prost(string, repeated, tag = "1")]
+    pub signatures: Vec<String>,
 }
 impl std::fmt::Debug for Challenge {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

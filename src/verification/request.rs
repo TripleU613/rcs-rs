@@ -1,4 +1,4 @@
-//! One initial Sync and an unsigned AcquireTemporaryToken Proceed only.
+//! Initial Sync and unsigned TS43 or matched incoming-SMS follow-ups.
 use super::{ProceedResponse, SyncResponse, Verification};
 use crate::{Error, consent::ConsentRequest};
 use base64::Engine;
@@ -19,6 +19,9 @@ pub struct InitialSync {
     pub slot_index: i32,
     pub subscription_id: i32,
     pub telephony: TelephonyInfo,
+    /// None without an active SMS receiver. Some("") requires a live ordinary SMS receiver;
+    /// otherwise supply its real, current Android createAppSpecificSmsToken result.
+    pub mt_sms_token: Option<String>,
 }
 pub struct TelephonyInfo {
     pub phone_type: i32,
@@ -88,9 +91,9 @@ fn make_sync(identity: &ConsentRequest, input: &InitialSync) -> Result<wire::Syn
                 value: value.into(),
             })
             .collect(),
-            methods: Some(wire::Methods {
+            methods: input.mt_sms_token.as_ref().map(|token| wire::Methods {
                 mt: Some(wire::MtData {
-                    payload: Some(String::new()),
+                    payload: Some(token.clone()),
                 }),
             }),
             api: Some(wire::ApiInfo {
@@ -165,6 +168,7 @@ fn make_proceed(
     let message = wire::ProceedRequest {
         verification: verification.raw.clone(),
         response: Some(wire::ChallengeResponse {
+            mt_sms: None,
             ts43: Some(wire::Ts43Response {
                 context: challenge.context.clone(),
                 temporary: Some(wire::TemporaryResponse {
@@ -185,7 +189,59 @@ fn check_size(message: &impl Message) -> Result<(), Error> {
     }
     Ok(())
 }
+
+fn make_mt_proceed(
+    identity: &ConsentRequest,
+    session: &str,
+    verification: &Verification,
+    body: &str,
+    sender: &str,
+) -> Result<wire::ProceedRequest, Error> {
+    if verification.key_status.is_some_and(|status| status != 0) {
+        return Err(Error::InvalidInput(
+            "unsigned Proceed after public-key update",
+        ));
+    }
+    let original = Verification::decode(verification.raw.clone())?;
+    if original.state != Some(2) || original.method != Some(2) {
+        return Err(Error::InvalidInput("pending MT SMS verification"));
+    }
+    let challenge = original
+        .mt_sms
+        .as_ref()
+        .ok_or(Error::InvalidInput("pending MT SMS challenge"))?;
+    if body.len() > super::MAX_TEXT
+        || sender.is_empty()
+        || sender.len() > super::MAX_TEXT
+        || sender.chars().any(char::is_control)
+        || !body.contains(challenge.private_signature())
+    {
+        return Err(Error::InvalidInput("matching received SMS body and sender"));
+    }
+    let message = wire::ProceedRequest {
+        verification: verification.raw.clone(),
+        response: Some(wire::ChallengeResponse {
+            mt_sms: Some(wire::MtSmsResponse {
+                body: body.into(),
+                sender: sender.into(),
+            }),
+            ts43: None,
+        }),
+        header: Some(crate::consent::make_header(identity, session)?),
+    };
+    check_size(&message)?;
+    Ok(message)
+}
 fn validate_sim(input: &InitialSync) -> Result<(), Error> {
+    if input.mt_sms_token.as_ref().is_some_and(|token| {
+        !token.is_empty()
+            && (token.len() != 11
+                || !token
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-'))
+    }) {
+        return Err(Error::InvalidInput("Android app-specific SMS token"));
+    }
     if !(5..=15).contains(&input.imsi.len()) || !input.imsi.bytes().all(|b| b.is_ascii_digit()) {
         return Err(Error::InvalidInput("SIM IMSI"));
     }
@@ -274,6 +330,26 @@ pub async fn proceed_ts43_unsigned(
 ) -> Result<ProceedResponse, Error> {
     let message = make_proceed(identity, session, verification, json, history)?;
     let response=rpc(metadata,message,"/google.internal.communications.phonedeviceverification.v1.PhoneDeviceVerification/Proceed").await?;
+    ProceedResponse::decode(response)
+}
+
+/// Answer an actual pending MT_SMS challenge with one received SmsMessage's body and originator.
+/// The host must own a live receiver for this session and selected subscription, enforce its
+/// deadline and cancel on SIM changes. Do not concatenate PDUs or extract an OTP from the body.
+/// Reuse the Sync RPC session and a `rpc=proceed` proof or valid backend cached token.
+/// A substring match does not authenticate an SMS; this codec does not acquire messages,
+/// select a verification policy or establish server support. Key updates are refused.
+pub async fn proceed_mt_sms_unsigned(
+    metadata: &crate::ClientMetadata,
+    identity: &ConsentRequest,
+    session: &str,
+    verification: &Verification,
+    body: &str,
+    sender: &str,
+) -> Result<ProceedResponse, Error> {
+    let message = make_mt_proceed(identity, session, verification, body, sender)?;
+    let response = rpc(metadata, message,
+        "/google.internal.communications.phonedeviceverification.v1.PhoneDeviceVerification/Proceed").await?;
     ProceedResponse::decode(response)
 }
 

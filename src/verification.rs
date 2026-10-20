@@ -13,7 +13,10 @@ pub use read::{
     ReadNumber, ReadNumbersRequest, ReadNumbersResponse, read_numbers_signing_input,
     read_verified_numbers,
 };
-pub use request::{InitialSync, OperatorInfo, TelephonyInfo, initial_sync, proceed_ts43_unsigned};
+pub use request::{
+    InitialSync, OperatorInfo, TelephonyInfo, initial_sync, proceed_mt_sms_unsigned,
+    proceed_ts43_unsigned,
+};
 
 const MAX_MESSAGE: usize = 256 * 1024;
 const MAX_TEXT: usize = 16 * 1024;
@@ -42,8 +45,9 @@ pub struct Verification {
     pub state: Option<i32>,
     /// Known examples: THROTTLED=1, FAILED=2. Unknown values remain numeric.
     pub unverified_reason: Option<i32>,
-    /// Challenge.method2 or UnverifiedInfo.method3; TS43 is 11.
+    /// Challenge.method2 or UnverifiedInfo.method3; MT_SMS is 2, TS43 is 11.
     pub method: Option<i32>,
+    pub mt_sms: Option<MtSmsChallenge>,
     pub ts43: Option<Ts43Challenge>,
     raw: Bytes,
     association: Option<Bytes>,
@@ -63,6 +67,18 @@ pub struct Ts43Challenge {
     pub action: Option<Ts43Action>,
     app_id: Option<String>,
     nai_realm: Option<String>,
+}
+
+pub struct MtSmsChallenge {
+    signature: String,
+}
+
+impl MtSmsChallenge {
+    /// Match only messages delivered by the host's live, subscription-bound SMS receiver.
+    /// This substring is service data, not a cryptographic signature or validated credential.
+    pub fn private_signature(&self) -> &str {
+        &self.signature
+    }
 }
 
 /// The decoder recognizes these payload kinds; it does not execute either operation.
@@ -244,6 +260,7 @@ impl Verification {
         let mut method = None;
         let mut unverified_reason = None;
         let mut ts43 = None;
+        let mut mt_sms = None;
         if let Some(bytes) = unverified {
             let _: wire::Integer1 = decode(&bytes)?;
             let _: wire::Integer3 = decode(&bytes)?;
@@ -257,10 +274,21 @@ impl Verification {
                 let _: wire::Integer2 = decode(&bytes)?;
                 let challenge: wire::Challenge = decode(&bytes)?;
                 method = one(challenge.methods)?;
+                let mt = one(challenge.mt_sms)?;
                 let payload = one(challenge.ts43)?;
-                match (method, payload) {
-                    (Some(11), Some(bytes)) => ts43 = Some(Ts43Challenge::decode(&bytes)?),
-                    (Some(11), None) | (_, Some(_)) => {
+                match (method, mt, payload) {
+                    (Some(2), Some(bytes), None) => {
+                        let challenge: wire::MtSmsChallenge = decode(&bytes)?;
+                        let signature = text(one(challenge.signatures)?)?
+                            .filter(|value| !value.is_empty())
+                            .ok_or(Error::InvalidResponse("MT SMS signature missing"))?;
+                        mt_sms = Some(MtSmsChallenge { signature });
+                    }
+                    (Some(11), None, Some(bytes)) => ts43 = Some(Ts43Challenge::decode(&bytes)?),
+                    (Some(2), _, _) | (_, Some(_), _) => {
+                        return Err(Error::InvalidResponse("MT SMS method/payload mismatch"));
+                    }
+                    (Some(11), _, _) | (_, _, Some(_)) => {
                         return Err(Error::InvalidResponse("TS43 method/payload mismatch"));
                     }
                     _ => {}
@@ -271,6 +299,7 @@ impl Verification {
             state,
             unverified_reason,
             method,
+            mt_sms,
             ts43,
             raw,
             association,
@@ -514,6 +543,7 @@ impl fmt::Debug for Verification {
             .field("state", &self.state)
             .field("unverified_reason", &self.unverified_reason)
             .field("method", &self.method)
+            .field("mt_sms_present", &self.mt_sms.is_some())
             .field("ts43_present", &self.ts43.is_some())
             .finish_non_exhaustive()
     }
@@ -544,7 +574,13 @@ macro_rules! redacted_debug {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.write_str(concat!(stringify!($name), "([REDACTED])")) }
     })* }
 }
-redacted_debug!(Ts43Challenge, Ts43Action, CarrierOperation, Ts43Parameters);
+redacted_debug!(
+    MtSmsChallenge,
+    Ts43Challenge,
+    Ts43Action,
+    CarrierOperation,
+    Ts43Parameters
+);
 
 #[cfg(test)]
 mod tests;

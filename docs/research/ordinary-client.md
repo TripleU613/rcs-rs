@@ -335,3 +335,51 @@ path; neither is supplied by the current probe. The unresolved routing failure
 must not be papered over with a guessed proxy or a root-only shipping dependency.
 No OTP completion, SIP registration or RCS messaging success has been observed
 in these experiments, and they made no GPNV verification RPC.
+
+## Incoming SMS verification: ordinary-app local control
+
+Original GMS 26.37.37 dispatches server-selected `MT_SMS=2` to an incoming SMS
+receiver. Its challenge is `joss` field6 (`jotf.signature1`); a matched message
+becomes `josx` field1 (`joth.body1`, `sender2`) in Proceed, preserving the original
+Verification record. Matching is a case-sensitive literal substring. Noisy
+reception processes individual SMS PDUs; silent reception uses the first
+`SmsMessage`. Neither path extracts a numeric OTP or concatenates bodies here.
+This PDV flow is separate from the carrier ACS's legacy OTP protocol.
+
+The silent receiver uses Android's public
+[`SmsManager.createAppSpecificSmsToken`](https://developer.android.com/reference/android/telephony/SmsManager#createAppSpecificSmsToken(android.app.PendingIntent)),
+not GMS push or SmsRetriever. The inspected installed framework checks the true
+caller UID/package and routes registration to the selected phone. It requires
+no ICC-auth capability in this path. Token registration is local; it does not
+verify a number or establish backend eligibility.
+
+On 2026-10-20 UTC, an independently signed ordinary APK on the connected phone
+registered two distinct, correctly shaped tokens for the actual default SMS
+subscription. Its manifest requests **zero permissions**; actual own-UID checks
+confirmed Internet, SMS, phone-state and privileged phone-state permissions were
+absent. Both own PendingIntents were cancelled, and attempting to send each
+cancelled handle raised `CanceledException`. No SMS or backend request was sent;
+no receiver callback was observed. The result screen remained the resumed
+activity. Only the separate probe was installed and launched; no SMS-role change
+or existing APK update was requested.
+The phone still has microG, so this is not a physical vanilla-ROM result.
+
+Cancellation does not establish removal of all framework state: one cancelled
+token registration may remain until matching delivery or replacement. The
+non-package token overload does not have the five-minute expiry used by the
+separate package-info variant. No token or message body was exported in the
+diagnostic result.
+
+The Rust codec now decodes these challenges and encodes unsigned matched-SMS
+Proceed replies, with bounded input, exact original-record retention and
+redacted diagnostics. It rejects empty matching signatures to avoid matching
+unrelated messages. `InitialSync.mt_sms_token` is explicit: `None` omits receiver
+metadata, `Some("")` requires a real ordinary SMS receiver, and a nonempty value
+must be the actual live Android token. The CLI supplies `None`; omission's
+backend effect has not been tested. There is no policy or preference override.
+
+Still unproven: actual SMS delivery to our receiver, a server MT_SMS offer for
+our independent caller and selected policy, successful Proceed, usable RCS
+credentials, registration and messaging. These additions do not bypass the
+retained provisioning retry deadline or remove the separate IID, proof,
+identifier, consent and backend-admission requirements of PDV.
