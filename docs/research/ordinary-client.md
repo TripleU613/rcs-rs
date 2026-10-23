@@ -375,8 +375,12 @@ Proceed replies, with bounded input, exact original-record retention and
 redacted diagnostics. It rejects empty matching signatures to avoid matching
 unrelated messages. `InitialSync.mt_sms_token` is explicit: `None` omits receiver
 metadata, `Some("")` requires a real ordinary SMS receiver, and a nonempty value
-must be the actual live Android token. The CLI supplies `None`; omission's
+must be the actual live Android token. The CLI defaults to `None`; omission's
 backend effect has not been tested. There is no policy or preference override.
+The CLI now accepts an optional `mt_sms_token_file` in its private session JSON:
+exactly 11 ASCII bytes from an actual, currently active Android token receiver.
+The path is relative to the session file. Without this explicit input it still
+omits receiver metadata. The token alone does not prove incoming delivery.
 
 Still unproven: actual SMS delivery to our receiver, a server MT_SMS offer for
 our independent caller and selected policy, successful Proceed, usable RCS

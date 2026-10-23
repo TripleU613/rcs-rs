@@ -3,3 +3,13 @@
 /.env.*
 /private/
 /captures/
+/codex-session-*.md
+/.superpowers/
+**/*-private.*
+*.apk
+*.dex
+*.pcap
+*.pcapng
+*.keystore
+*.jks
+*.p12

@@ -1640,7 +1640,7 @@ No new SDK, carrier or ACS request accompanied this source, build and control wo
 
 ## Evidence locations
 
-Private root: `Downloads/pixel4a-geekbox/rcs-gapps-re/` under the user's home.
+The private evidence root is outside this repository.
 `messages-static/` contains source and DEX instruction references tied to the
 current APK digest; `mobileconfig-static/` contains the reconstructed schema,
 schema assertions and actual RPC artifacts; `runtime/` contains bounded device

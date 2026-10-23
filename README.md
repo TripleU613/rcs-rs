@@ -1,228 +1,120 @@
 # rcs-rs
 
-A Rust RCS engine for open source messaging apps.
+**An experimental Rust foundation for independent RCS clients.**
 
-The goal is to let an existing SMS app add carrier-backed RCS through a reusable
-library. The app retains its conversation UI and SMS transport. The RCS engine
-handles service provisioning, registration, capabilities and RCS messaging.
+[![CI](https://github.com/TripleU613/rcs-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/TripleU613/rcs-rs/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-The shipping target is a normal APK on stock and custom Android, including
-vanilla builds without GApps. The engine must authenticate its own client;
-Google Messages, microG and root are laboratory tools, not shipping requirements.
-That independent deployment remains unproven.
+The goal is to let an open source SMS app add RCS through a reusable Rust
+library while retaining its own conversations and SMS transport. The intended
+Android host is a normal APK on stock or custom ROMs, including builds without
+GApps. Google Messages, microG and root are research tools in the current lab.
 
-**Status: Rust configuration discovery works with reference caller credentials.**
-The Rust ACS client obtains a real DroidGuard challenge and retains its session
-cookie. Rust consent lookup also works with genuine caller-supplied platform
-identity/proof inputs. Independent probes completed real SIM authentication and
-obtained a carrier temporary token. That Google-specific ACS path returns an invalid
-configuration without subscriber credentials; the Rust number-verification RPC also reaches
-Google, whose verification record remains throttled.
-Discovery now includes an optional actual installed GMS version. A controlled
-comparison found that omitting it hid the direct carrier-authentication route;
-the corrected Rust request receives direct TS43 support and a carrier endpoint.
-Signed read-only number lookup succeeds with the client's owned credentials,
-but currently returns no verified-number records.
-Registration and Google Messages interoperability remain unverified.
-The [ordinary-client admission record](docs/research/ordinary-client.md) tracks
-own-APK permissions and backend checks separately from the reference-client work.
-An own-APK cellular probe reached the standard carrier ACS and, with a temporary
-identifier app-op lab grant, received a provisioning body. Its XML is unfinished
-and its profile selects SIM AKA, the IMS APN and single registration; this does
-not establish a usable session or ordinary-app support for those operations.
-Installed-code and own-UID checks now identify separate SIM-auth and restricted
-IMS-request gates. Using a carrier-advertised IPv6 proxy, the normal APK now gets
-real SIP responses: OPTIONS returned 403; a contact-free REGISTER query returned
-401 with MD5/`auth-init`. A Rust-generated credential response was rejected with
-403 and a `user_unknown` indication, but source inspection then showed that this
-AKA profile's APPAUTH fields are skipped by the reference Digest path. No
-registration binding or RCS session was obtained; proxy discovery still used
-laboratory-supplied system data.
+> **Research prototype. No successful Google RCS registration or two-way
+> messaging has been demonstrated.** The present crate implements discovery,
+> provisioning and number-verification building blocks, not a complete RCS engine.
 
-Success means this library sends a text to current Google Messages and receives
-a reply over **verified RCS**, independently of Google Messages on the sending
-device. Provisioning and registration are intermediate milestones.
+## What works today
 
-See the [Google RCS interoperability plan](docs/superpowers/plans/2026-10-16-google-rcs-interoperability.md)
-and the [bootstrap design](docs/superpowers/specs/2026-10-16-rcs-bootstrap-design.md).
+| Area | Implemented and checked | Live result and limit |
+| --- | --- | --- |
+| Configuration discovery | Bounded protobuf decoding, real installed-GMS context, redacted diagnostics | Rust reached configuration discovery with reference caller inputs; independent client admission remains open |
+| ACS provisioning | Stateful cookies, direct TS43 and UPI challenge/proof framing, owned MLS proof validation | Challenges and carrier temporary tokens observed in the lab; no accepted complete Google provisioning flow |
+| Number verification | Consent lookup, Sync/Proceed, TS43 and incoming-SMS codecs | Consent succeeds; latest completed Sync returned `THROTTLED` / status 8 |
+| Existing-number lookup | Signed read-only requests and bounded record decoding | Live request succeeded with zero number records |
+| Android integration | Ordinary-app permission probe, owned check-in/MLS identity tools, VM-material boundaries | Several host capabilities checked; privileged lab operations do not establish ordinary-app availability |
+| Proxy experiment | Explicit HTTP CONNECT for PDV Sync/Proceed with origin TLS and no direct fallback | Replacement proxy reached Google; the same verification throttle remained |
+| Registration and messaging | Research and implementation plan | No registration binding, verified RCS message exchange or production Android SDK |
 
-## Reuse first
+The success criterion is a text sent by this library to current Google Messages
+and a reply received over verified RCS, independently of Google Messages on the
+sending device. Each earlier step is an intermediate result.
 
-[rust-rcs-client](https://github.com/Hirohumi/rust-rcs-client) already implements
-auto-configuration and messaging, with
-[rust-rcs-core](https://github.com/Hirohumi/rust-rcs-core) underneath it. Evaluate
-these before writing another SIP/MSRP stack. The [pinned audit](docs/research/upstream.md)
-found working parser/linkage paths, secret logging and incomplete platform support.
-Their upstream claims are not verification of Tello or Google Messages compatibility.
+## Start locally
 
-[Evaluation patches](patches/upstream/README.md) now suppress credential logging,
-fix trust-root loading and reject truncated provisioning. They are tested against
-the pinned sources and remain separate from the shipping crate.
-
-## Development data
-
-Use synthetic fixtures in this repository. Keep SIM identifiers, phone numbers,
-tokens, provisioning credentials, APKs and raw device captures outside it.
-The bootstrap uses tonic for TLS/HTTP2/gRPC and prost for protobuf. Reference
-application credentials are supplied externally and are not bundled.
-
-## Run the bootstrap probe
-
-Set `RCS_APP_PACKAGE`, `RCS_APP_CERT_SHA1` and `RCS_API_KEY_FILE` (a private
-plaintext file), then run:
+Install a current stable Rust toolchain with Cargo, rustfmt and Clippy.
 
 ```sh
-cargo run --example discover -- MCC MNC DEVICE MANUFACTURER PACKAGE_VERSION [GMS_VERSION]
+git clone https://github.com/TripleU613/rcs-rs.git
+cd rcs-rs
+cargo test --locked --all-targets
+cargo fmt --all -- --check
+cargo clippy --locked --all-targets -- -D warnings
 ```
 
-The probe sends MCC/MNC and device/application metadata, defaulting GSF Android
-ID to zero. It accepts no phone number, IMSI or IMEI. Backend admission may restrict
-the application credentials. `DEVICE` is Android's `Build.DEVICE`, not its model
-name. Supply the actual installed Play Services or compatible implementation's
-version with `Probe::with_gms_version` or the final CLI argument when present;
-the minimal request without it can receive different provisioning routes.
-`Probe::with_gsf_android_id` (CLI: optional `RCS_GSF_ANDROID_ID`) passes the actual
-signed-decimal GServices `android_id` read in the authorized client context.
-Leave it unset when unknown. Shell/Phone lookups can differ from Messages due
-to provider access rules; neither Settings.Secure.ANDROID_ID nor a check-in ID
-is an established substitute. On this test line, the actual ID and zero returned
-identical onboarding flags and policy.
-Output contains configuration flags and the ACS
-host, without response tokens.
+Default tests use synthetic fixtures and local HTTP/gRPC servers. They need no
+SIM, phone, Google account, API key or live provider access. The ignored live
+proxy check is explicitly opt-in. The Android research tools have separate
+SDK/device prerequisites in their own READMEs.
 
-The separate initial ACS probe takes an HTTPS endpoint and client metadata:
+The crate is not published to crates.io. For local evaluation:
 
-```sh
-cargo run --example challenge -- HTTPS_URL VENDOR MODEL OS_VERSION CLIENT_VENDOR CLIENT_VERSION RCS_PROFILE RCS_VERSION [--droidguard]
+```toml
+[dependencies]
+rcs-rs = { path = "../rcs-rs" }
 ```
 
-`AcsSession::initial_challenge(&parameters, None)` omits client-authenticity
-advertising. Explicit `Some(ClientAuthenticity::DroidGuard)` (CLI:
-`--droidguard`) advertises the Google method; the host must supply its genuine
-proof separately. Omission does not bypass a provider's authenticity requirement.
-The recovered UPI path continues to advertise its distinct `goog-mls-upi` method.
+## Explore the project
 
-`AcsSession::msisdn_challenge(&parameters, own_number, None)` begins number-based
-provisioning without IMSI, IMEI, a Google API key or a client-authenticity
-advertisement. Its third argument accepts the same explicit authenticity choice.
-The number must use international `+digits` form, at most 15
-digits. This explicit call can trigger a provider verification SMS. OTP submission,
-accepted provisioning and registration are not implemented by this method.
-Supply provider-formatted metadata: for example, vendor `RCRS` and version
-`RCRS-0.1`, rather than an APK's unformatted version name.
+| Start here | Contents |
+| --- | --- |
+| [Usage guide](docs/usage.md) | Example commands, private input requirements, Sync/Proceed, incoming-SMS metadata and ACS APIs |
+| [Research index](docs/research/README.md) | Evidence map, current blockers and dated experiments |
+| [Ordinary Android client](docs/research/ordinary-client.md) | Permission gates, independent APK checks and vanilla-ROM limits |
+| [Provider access](docs/research/provider-access.md) | Google credential/provisioning flow and carrier IMS comparison |
+| [Verification throttle](docs/research/verification-throttle-2026-10-20.md) | Two distinct retry fields, public recovery reports and actual proxy outcomes |
+| [Community research](docs/research/community-routes-2026-10-20.md) | microG implementation lineage and reported successes, with original sources |
+| [Wire and platform research](docs/research/gapps-bootstrap.md) | Recovered behavior, artifact references and per-experiment limitations |
+| [Interoperability plan](docs/superpowers/plans/2026-10-16-google-rcs-interoperability.md) | Remaining work through a two-way RCS exchange |
 
-`cargo run --example get_consent -- /private/input.json` performs consumer
-consent lookup. The example documents its private-file inputs. It requires a
-genuine full-flow IID, checkin identity, owned public key and DroidGuard proof
-or a valid backend-issued cached token; the crate does not fabricate these.
+### Source layout
 
-`verification::SyncResponse::decode` and `ProceedResponse::decode` inspect raw
-protobuf captures offline. They expose TS43 and incoming-SMS challenges and per-record failures,
-retain exact verification/context bytes, and redact private fields in diagnostics.
-They do not send verification requests or validate returned tokens. The decoder
-has also been checked against the private pending, failed and throttled captures.
-
-`verification::initial_sync` sends one initial verification request using genuine
-SIM/caller facts. `verification::proceed_ts43_unsigned` submits a genuine full
-carrier JSON response while preserving the original verification/context bytes.
-It rejects public-key updates because signed follow-ups are not implemented.
-Neither function retries automatically or treats outer RPC success as verification.
-`InitialSync::mt_sms_token` must be `None` unless the host has a live SMS receiver:
-an empty string selects ordinary SMS reception metadata; otherwise supply the real
-Android app-specific token. The CLI supplies `None`, since it has no receiver.
-`verification::proceed_mt_sms_unsigned` submits one genuinely received matching
-SMS body and originator for an actual pending MT_SMS challenge. It preserves the
-original record and refuses key updates; the Android host still owns reception,
-subscription/session association and cancellation. Google offering this method
-to an independent caller remains unproven.
-`Verification::private_id_token` exposes the optional `id_token` parameter for
-the UPI provisioning step. It is unvalidated service data; its presence is not
-proof of verified identity, JWT validity or registration.
-
-`verification::read_verified_numbers` queries this client's existing RCS number
-records without starting number verification. Supply the read API's distinct
-project-specific IID, a fresh timestamp and the owned persisted EC key's DER
-signature over `read_numbers_signing_input(iid, timestamp)` using SHA256withECDSA.
-Keep that IID and timestamp identical in `ReadNumbersRequest`, and supply the
-actual caller certificate, package and nonce. The library bounds the signature
-but does not verify key ownership or freshness. Empty results stay empty, and
-quota errors never cause automatic retries. Private phone/token accessors return
-unvalidated service data; original records retain timestamp and unknown fields.
-The exported Rust API has also returned an empty result against the live service;
-it is not successful subscriber verification or RCS registration.
-
-```sh
-cargo run --example verify_number -- sync /private/session.json /private/new-response.pb
-cargo run --example verify_number -- proceed /private/session.json /private/new-proceed.pb
+```text
+src/                 Discovery, consent, ACS and verification library
+examples/            Explicit discovery, challenge, consent and verification probes
+tests/fixtures/      Independently encoded synthetic protocol fixtures
+tools/               Android admission, owned identity and VM-material research tools
+patches/upstream/    Pinned evaluation patches for existing Rust RCS projects
+docs/                Usage, evidence, design and interoperability plan
 ```
 
-The example documents the session JSON fields in its source. It reserves a new
-mode-600 response file, never overwrites a capture, and may leave an empty file on
-failure. A raw DroidGuard proof must match the requested RPC; a valid cached token
-can be reused. Carrier EAP-AKA/HTTP execution still uses private research tooling,
-not this library. The corrected Proceed payload has not yet passed live verification.
+The shipping boundary is the Rust library plus an application-owned Android
+host. Live carrier authentication and platform proofs still require host work;
+private laboratory coordinators are not a distributed SDK.
 
-`AcsSession::upi_challenge` implements the recovered UPI challenge request.
-Its context exposes the private DroidGuard input map and MLS signing bytes.
-Supply a genuine platform result and an owned P-256 participant signature to
-`UpiChallenge::provision`; it verifies the signature and sends one `/provision`
-request. The context holds exclusive session access until consumed or dropped.
-This path has synthetic wire and localhost transport coverage. A separate live
-UPI challenge probe obtained a nonce/cookie; credential-bearing UPI provisioning
-and service registration remain unverified.
+## Current investigation
 
-`AcsSession::direct_challenge(&DirectParameters)` implements the separate direct
-TS43 route. It returns either opaque WAP bytes or an owned challenge context.
-After genuine selected-subscription carrier authentication, consume that context
-with `bind_carrier(token)`. The resulting `DirectBoundChallenge` supplies the
-private VM input map, its exact salt for in-process host binding checks, and the
-trimmed MLS nonce/signing bytes. Keep that salt coupled to the same context; never
-replace it or export it in diagnostics. Its consuming
-`provision(raw_vm_snapshot, &MlsProof)` verifies the owned participant signature
-and submits one multipart POST to the same configured path. VM execution and
-carrier authentication remain the Android host's responsibility.
+The retained Google Sync responses contain a roughly one-hour **global retry
+instruction**, while the individual verification record's retry value is zero.
+Waiting beyond one hour and changing the network route both still produced the
+same refusal. The quota key and reset window remain unknown. A fresh October 21
+consent lookup still reported RCS consent granted.
 
-`acs::verify_mls_participant_proof(nonce, spki_der, signature_der)` also checks an
-owned labeled signature without an HTTP exchange or routing configuration.
-An ordinary Android lab APK has used this Rust function through JNI with its
-existing Java identity and passed a separate platform-verified HTTPS control.
-This establishes host integration, with admission and vanilla-ROM portability
-still unproven; see the [integration record](docs/research/gapps-bootstrap.md#23-ordinary-android-rustjni-proof-and-tls-integration).
+Incoming-SMS verification is the next distinct experiment: the library can
+encode a matched server-selected challenge, and the CLI can accept metadata from
+a real active Android receiver. Actual delivery, a server SMS challenge and a
+successful Proceed remain unproven. See the [dated investigation](docs/research/verification-throttle-2026-10-20.md).
 
-Supply actual configuration version/state, SMS port, device type and already
-formatted own-client metadata. Initial version/state/port0 are explicit inputs,
-not universal defaults. This bounded direct implementation excludes optional
-instance-ID/provision-ID branches. `home_kds` is explicit caller configuration;
-reference build 324451063 has a compiled default 2, which is not an independent
-client's enrollment or server assignment.
+## Contribute
 
-Initial direct and UPI exchanges require a fresh applicable cookie jar; UPI also
-checks its separate `/provision` path. A previous GET's cookie cannot authorize a
-new challenge that supplies none. Generic initial/number-based methods retain
-their stateful cookie behavior. Keep request journals and service waits outside
-the HTTP session; creating another session does not reset those obligations.
-Any ACS Retry-After header stops the exchange, including on HTTP200. Only numeric
-delta-seconds are returned as a duration; date/invalid/empty values still stop it.
-ACS transport disables protocol retries and redirects. Its 10s connect/20s total
-timeouts are host limits, not the reference client's 20s connect/60s read limits.
+Useful contributions reproduce a specific failure, validate a wire field against
+an independent source, exercise an ordinary Android capability, or demonstrate a
+complete provider-admitted flow. Include what actually ran and what remains
+unproven. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-The direct Rust API has synthetic framing/signature and localhost transport
-coverage. It has not yet submitted a live own-client ACS proof or established
-accepted provisioning, registration or messaging.
+Keep real phone numbers, SIM/device identifiers, tokens, signing keys, account
+data, provisioning credentials, APKs and raw captures outside Git and issues.
+Fixtures must be synthetic. See [fixture provenance](tests/fixtures/README.md).
 
-`cargo test --all-targets` runs the synthetic protocol and localhost transport
-checks. Formatting and strict Clippy also pass. No live credentials are needed
-for these tests.
+## Related work and license
 
-See [recovered GApps behavior](docs/research/gapps-bootstrap.md) for artifact
-identities, wire evidence, live checks and remaining blockers.
-The [provider-access record](docs/research/provider-access.md) separates this
-subscription's UPI credential/provisioning path from Android single registration
-and the carrier temporary-token route.
+This project evaluates [rust-rcs-client](https://github.com/Hirohumi/rust-rcs-client)
+and [rust-rcs-core](https://github.com/Hirohumi/rust-rcs-core) before duplicating a
+SIP/MSRP stack; [pinned patches and their limits](patches/upstream/README.md) are
+included. [microG's Constellation work](https://github.com/microg/GmsCore/pull/3359)
+is an important reference for Google number verification. Their results do not
+establish interoperability for this independent client.
 
-Nothing has been pushed or published.
-
-The [ordinary Android capability probe](tools/android-admission-probe/README.md)
-builds as a small self-targeted instrumentation APK without Google SDKs. It reports
-permission gates and identifier availability without exporting subscriber values;
-it neither changes the SMS role nor tests RCS registration.
+Licensed under [Apache-2.0](LICENSE). Retained upstream attribution and research
+tool provenance are described in [NOTICE](NOTICE) and the relevant tool READMEs.
+This is an independent project, unaffiliated with Google or the GSMA.

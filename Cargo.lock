@@ -816,6 +816,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "http",
+ "hyper-util",
  "prost",
  "reqwest",
  "ring",
@@ -827,6 +828,7 @@ dependencies = [
  "tokio-stream",
  "tonic",
  "tonic-prost",
+ "tower",
  "uuid",
 ]
 

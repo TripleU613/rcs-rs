@@ -1,0 +1,13 @@
+rcs-rs
+Copyright 2026 rcs-rs contributors
+
+This project includes research tools adapted from Apache-2.0-licensed microG
+code and schema definitions. Original copyright headers are retained in the
+relevant files. See tools/android-checkin-probe/README.md and
+tools/android-vm-materials/README.md for source pins, attribution and changes.
+
+patches/upstream/ contains evaluation patches for rust-rcs-client and
+rust-rcs-core, both licensed under Apache-2.0. Their original copyright
+headers and the applicable license are retained. See patches/upstream/README.md.
+
+Protocol names and product names belong to their respective owners.

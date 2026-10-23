@@ -39,8 +39,8 @@ it never starts auto-configuration, connects HTTP/SIP, or invokes a SIM backend.
 Context workers wait for requests; no request is submitted. No packet-level
 network trace was collected.
 
-Private harness source, resolved lockfile, and logs are outside this repository:
-`/home/tripleu/Downloads/pixel4a-geekbox/rcs-gapps-re/upstream-evaluation/`.
+Private harness source, resolved lockfile, and logs are outside this repository
+in the laboratory's `upstream-evaluation/` evidence directory.
 The upstream client/core emitted 133/87 compiler warnings respectively; a green
 test command is not a clean lint audit. Source trees and application code were
 not patched to make these checks pass.

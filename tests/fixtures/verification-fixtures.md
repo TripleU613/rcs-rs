@@ -27,7 +27,8 @@ No returned state/token is validated as proof that a phone number is verified.
   facts and proof, zero slot explicitly present, one IMSI request and SHA-256
   caller-session/IMSI nonce. Header version is GMS version code divided by 1000.
   Its synthetic caller explicitly opts into empty-token noisy SMS receiver metadata;
-  the real CLI does not have a receiver and now omits this metadata.
+  the real CLI omits it by default and accepts a file containing a live Android
+  token only when the host actually maintains the corresponding receiver.
 - `proceed-request.bin`: original `verification-pending.bin` preserved byte for
   byte, opaque context unchanged, full synthetic carrier JSON in
   ChallengeResponse9 -> TS43.temporary3 -> **TemporaryResponse.string2**,

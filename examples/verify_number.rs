@@ -6,6 +6,7 @@
 //! phone_count,max_subscriptions}. Proceed additionally needs pending_response_file,
 //! carrier_response_file and optional http_history_file (JSON string array).
 //! Paths are relative to SESSION_JSON. Keep all inputs/captures outside the repo.
+//! Sync accepts mt_sms_token_file only for a real, currently active Android SMS receiver.
 //! A response file is exclusively reserved before a request, and may be empty on error.
 //! session_id is the PDV RPC session; carry caller_session_id into later ACS provisioning.
 #[path = "support/pdv_input.rs"]
@@ -36,6 +37,7 @@ struct Session {
     pending_response_file: Option<PathBuf>,
     carrier_response_file: Option<PathBuf>,
     http_history_file: Option<PathBuf>,
+    mt_sms_token_file: Option<PathBuf>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -136,7 +138,17 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         slot_index: session.slot_index,
         subscription_id: session.subscription_id,
         telephony: session.telephony.into(),
-        mt_sms_token: None,
+        mt_sms_token: session
+            .mt_sms_token_file
+            .as_ref()
+            .map(|file| {
+                let token = read_bounded(&base.join(file), 11)?;
+                if token.len() != 11 || !token.is_ascii() {
+                    return Err(invalid("invalid live Android SMS token file"));
+                }
+                String::from_utf8(token).map_err(|_| invalid("invalid live Android SMS token file"))
+            })
+            .transpose()?,
     };
     let mut output = output_file(Path::new(&args[2]))?;
     if mode == "sync" {

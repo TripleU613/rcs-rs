@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Install stable Rust
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+          rustup default stable
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Test synthetic and local transport fixtures
+        run: cargo test --locked --all-targets
+      - name: Lint
+        run: cargo clippy --locked --all-targets -- -D warnings

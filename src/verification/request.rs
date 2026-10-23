@@ -5,6 +5,7 @@ use base64::Engine;
 use bytes::Bytes;
 use prost::Message;
 use std::{fmt, time::Duration};
+mod proxy;
 mod wire;
 
 pub struct InitialSync {
@@ -358,16 +359,31 @@ pub(super) async fn rpc<T: Message + Default + 'static>(
     message: T,
     path: &'static str,
 ) -> Result<Bytes, Error> {
-    let channel = tonic::transport::Endpoint::from_static(
+    let endpoint = tonic::transport::Endpoint::from_static(
         "https://phonedeviceverification-pa.googleapis.com",
     )
     .tls_config(tonic::transport::ClientTlsConfig::new().with_native_roots())
     .map_err(Error::Transport)?
     .connect_timeout(Duration::from_secs(10))
-    .timeout(Duration::from_secs(20))
-    .connect()
-    .await
-    .map_err(Error::Transport)?;
+    .timeout(Duration::from_secs(20));
+    let channel = match std::env::var("RCS_PDV_HTTP_PROXY") {
+        Ok(value) => {
+            let address = value
+                .parse::<std::net::SocketAddr>()
+                .map_err(|_| Error::InvalidInput("RCS_PDV_HTTP_PROXY must be IP:port"))?;
+            if address.port() == 0 {
+                return Err(Error::InvalidInput("proxy port must be nonzero"));
+            }
+            endpoint
+                .connect_with_connector(tower::service_fn(move |_| proxy::connect(address)))
+                .await
+                .map_err(Error::Transport)?
+        }
+        Err(std::env::VarError::NotPresent) => {
+            endpoint.connect().await.map_err(Error::Transport)?
+        }
+        Err(_) => return Err(Error::InvalidInput("invalid proxy environment value")),
+    };
     send_channel(channel, metadata, message, path).await
 }
 pub(super) async fn send_channel<T: Message + Default + 'static>(

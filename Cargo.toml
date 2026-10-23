@@ -2,20 +2,24 @@
 name = "rcs-rs"
 version = "0.1.0"
 edition = "2024"
-description = "Experimental RCS bootstrap discovery and ACS client-authenticity challenges"
+description = "Experimental RCS discovery, provisioning and number-verification research"
+license = "Apache-2.0"
+repository = "https://github.com/TripleU613/rcs-rs"
 publish = false
 
 [dependencies]
 base64 = "0.22"
 bytes = "1"
 http = "1"
+hyper-util = { version = "0.1", features = ["tokio"] }
 prost = "0.14.4"
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no-provider", "cookies", "http2", "query"] }
 roxmltree = "0.21.1"
 ring = "0.17"
 serde_json = "1"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "net", "io-util"] }
+tower = { version = "0.5", features = ["util"] }
 tonic = { version = "0.14.6", default-features = false, features = ["channel", "codegen", "tls-ring", "tls-native-roots"] }
 tonic-prost = "0.14.6"
 uuid = { version = "1", features = ["v4"] }
