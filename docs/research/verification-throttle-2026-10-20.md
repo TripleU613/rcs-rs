@@ -242,3 +242,31 @@ verification-resource-exhaustion message. The global retry difference was
 3,599,592 milliseconds. No pending challenge or number credential was returned;
 carrier authentication and Proceed did not run. No automatic retry was enabled.
 The local preflight failures sent no Sync. Raw evidence remains outside Git.
+
+## Accepted-versus-throttled request comparison — October 23
+
+Compared the retained first successful Sync request/response with the first
+throttled request using the independent protobuf descriptors. The successful
+response had PENDING (2), status 0 and a TS43 challenge. The request differences
+were renewed session IDs and their caller nonce, plus replacing the raw
+`constellation_verify` proof with the backend-issued cached token.
+
+The device/IID, public key, SIM association, policy, telephony and method data
+matched between those two captures. The cached token in the first throttled
+request is the token returned by the successful Sync and retained by the later
+canonical identity. The original raw-proof script's IID hash also matches that
+same identity.
+
+Native code supports cached-token reuse until expiry, so this does not establish
+that caching caused the throttle. Backend state changed between the attempts as
+well. It does identify a concrete comparison for a future controlled experiment:
+a newly generated genuine `constellation_verify` proof bound to `rpc=sync` and
+the same IID, with the identity and policy preserved. Simply waiting another
+hour or replaying the original old raw proof would not test that difference.
+
+A native same-IID proof control was then attempted on the existing microG lab
+host. It stalled without returning a proof. The host controller was terminated
+and its owned ADB forward removed; the existing daemon and GMS process were
+preserved. No new verification Sync was sent. This control does not establish
+whether the native proof operation itself failed or its instrumentation stalled.
+The proposed fresh-proof-versus-cache comparison remains unperformed.
