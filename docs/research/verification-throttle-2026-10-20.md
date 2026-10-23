@@ -270,3 +270,27 @@ and its owned ADB forward removed; the existing daemon and GMS process were
 preserved. No new verification Sync was sent. This control does not establish
 whether the native proof operation itself failed or its instrumentation stalled.
 The proposed fresh-proof-versus-cache comparison remains unperformed.
+
+### Fresh-proof control repaired and next experiment prepared
+
+The instrumentation stall was traced to an unanswered Frida Java-bridge load
+request in the new private controller. Supplying the pinned bridge fixed that
+handshake. The native API then returned a new roughly 32 KiB proof for the same
+IID and `rpc=sync`. An additional private-controller bound of 16 KiB rejected
+that genuine result; it was corrected to the Rust library's existing 64 KiB
+bound. These were controller defects, not evidence of a native proof refusal.
+All attachment and forwarding cleanup checks passed after the successful native
+return. This proof control sent no verification Sync.
+
+A one-shot experiment is scheduled for October 23, 04:23:47 UTC, after the latest
+Sync's conservative one-hour interval. It will generate another new proof just
+before Sync, preserve the canonical IID/key/SIM/policy and use no cached token
+for that Sync. If an accepted TS43 challenge supplies a new backend cache, that
+new cache can authorize the existing carrier/Proceed continuation. An old raw
+Sync proof will not be reused for Proceed. Missing follow-up attestation stops
+the continuation explicitly. Source pins, live SIM comparison and owned resource
+cleanup remain required. There is no retry loop or automatic identity rotation.
+
+This establishes that the fresh-proof path is available. The provider's result
+for the raw-proof-versus-cache experiment is still pending; quota recovery and
+successful verification are not established by generating a proof locally.
