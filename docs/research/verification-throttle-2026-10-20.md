@@ -226,3 +226,19 @@ message exchange was demonstrated by the October 22 note.
 Identifiers, account details, registration handles and private database extracts
 are omitted from this public record. The retained backend attestation's recorded
 expiry is October 24; any later experiment must check expiry before use.
+
+## Same-identity retry — October 23, 03:23 UTC
+
+One fresh direct Sync completed at 03:23:44 UTC (October 22, 23:23 EDT), after
+the retained Sync waits had elapsed and with the original unexpired identity
+inputs. Live device/SIM comparison passed. The older preflight initially stopped
+because an existing lab instrumentation daemon prevented starting another copy;
+the successful check reused that daemon only after checking it had no active TCP
+client. Its own attachment, forwarding and generated outputs were cleaned up,
+with all cleanup checks passing; the existing daemon was left running.
+
+Google again returned NONE (1), THROTTLED (1), record status 8 and the identical
+verification-resource-exhaustion message. The global retry difference was
+3,599,592 milliseconds. No pending challenge or number credential was returned;
+carrier authentication and Proceed did not run. No automatic retry was enabled.
+The local preflight failures sent no Sync. Raw evidence remains outside Git.
