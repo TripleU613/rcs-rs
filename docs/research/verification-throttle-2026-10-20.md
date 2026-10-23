@@ -308,3 +308,20 @@ so carrier authentication and Proceed did not run. No further Sync was sent to
 produce this update. Replacing the cached token with a new native proof did not
 clear the refusal in this controlled attempt; the underlying quota scope and
 admission cause remain unknown.
+
+### Isolating the reference client — October 23, 16:07 UTC
+
+A fresh phone check resolved the Constellation service action to microG's
+DummyService. The installed package therefore does not provide a usable native
+reference verification path. Messages was force-stopped without clearing its
+data; the stopped flag was confirmed. No active task-specific retry timer was
+observed. These controls sent no verification request and do not establish that
+every possible background verification source has been disabled.
+
+The missing diagnostic is this same SIM on a known-working stock Google Messages
+and genuine Play services installation. Acceptance there would direct debugging
+toward differences in the independent caller or its admission context. Refusal
+there would support investigating the line/provider state, while still requiring
+the exact stock failure to be examined. Neither outcome is yet observed. Changing
+the primary number, extending arbitrary cooldown estimates, or declaring the
+number banned is not justified by the existing evidence.
