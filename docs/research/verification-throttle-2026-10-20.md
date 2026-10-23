@@ -294,3 +294,17 @@ cleanup remain required. There is no retry loop or automatic identity rotation.
 This establishes that the fresh-proof path is available. The provider's result
 for the raw-proof-versus-cache experiment is still pending; quota recovery and
 successful verification are not established by generating a proof locally.
+
+### Fresh-proof experiment result — October 23, 04:23 UTC
+
+The scheduled attempt completed at 04:23:57 UTC (00:23 EDT). It generated a
+32,062-character native proof for the same IID and `rpc=sync`, configured the
+identity with that raw proof and no cached-token input, and passed the live SIM
+comparison. Proof-generation and metadata cleanup checks passed.
+
+Google again returned NONE (1), THROTTLED (1), record status 8 and the same
+verification-resource-exhaustion message. No challenge or credential was issued,
+so carrier authentication and Proceed did not run. No further Sync was sent to
+produce this update. Replacing the cached token with a new native proof did not
+clear the refusal in this controlled attempt; the underlying quota scope and
+admission cause remain unknown.
